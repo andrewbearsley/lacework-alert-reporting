@@ -1,0 +1,5 @@
+*.json
+*.csv
+*.xls
+PRIVATE.md
+.DS_Store
