@@ -12,18 +12,19 @@ This script performs the complete workflow using compliance reports:
 7. Writes comprehensive output to CSV
 """
 
-import json
+import argparse
 import csv
+import hashlib
+import json
 import os
+import shutil
+import subprocess
 import sys
 import time
-import re
-import subprocess
-import hashlib
-import argparse
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Set, List, Dict, Optional
+from typing import Dict, List, Optional
+
+import laceworksdk
 
 try:
     from laceworksdk import LaceworkClient
@@ -52,6 +53,12 @@ def parse_arguments():
         '-k', '--api-key-file',
         required=True,
         help='Path to the Lacework API key JSON file (e.g., api-key/my-key.json)'
+    )
+    
+    parser.add_argument(
+        '--clear-cache',
+        action='store_true',
+        help='Clear all cached data before running (forces fresh API calls)'
     )
     
     return parser.parse_args()
@@ -578,6 +585,16 @@ def write_compliance_csv(policies_data, compliance_stats, output_file, framework
         sys.exit(1)
 
 
+def clear_cache(cache_dir: Path):
+    """Clear all cached data."""
+    if cache_dir.exists():
+        print(f"Clearing cache directory: {cache_dir}")
+        shutil.rmtree(cache_dir)
+        print("Cache cleared successfully")
+    else:
+        print("Cache directory does not exist, nothing to clear")
+
+
 def main():
     """Main function to execute the complete compliance-based framework mapping workflow."""
     
@@ -587,6 +604,8 @@ def main():
     print("=== Lacework Compliance-Based Framework Mapping Tool ===")
     print(f"Report: {args.report_name}")
     print(f"API Key: {args.api_key_file}")
+    if args.clear_cache:
+        print("Clear Cache: Enabled")
     print("Performing comprehensive policy compliance analysis...\n")
     
     # Generate filename-safe version of report name
@@ -596,10 +615,15 @@ def main():
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     api_key_file = Path(args.api_key_file)
-    report_cache_dir = project_root / "cache" / "report-definitions"
-    policy_cache_dir = project_root / "cache" / "policy-details"
-    compliance_cache_dir = project_root / "cache" / "compliance-reports"
+    cache_dir = project_root / "cache"
+    report_cache_dir = cache_dir / "report-definitions"
+    policy_cache_dir = cache_dir / "policy-details"
+    compliance_cache_dir = cache_dir / "compliance-reports"
     output_dir = project_root / "output"
+    
+    # Clear cache if requested
+    if args.clear_cache:
+        clear_cache(cache_dir)
     
     # Ensure directories exist
     report_cache_dir.mkdir(parents=True, exist_ok=True)

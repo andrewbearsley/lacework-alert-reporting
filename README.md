@@ -83,8 +83,14 @@ pip3 install laceworksdk
 ## Usage
 
 ```bash
-python3 script/compliance_framework_mapping.py -r "REPORT_NAME" -k "API_KEY_FILE"
+python3 script/compliance_framework_mapping.py -r "REPORT_NAME" -k "API_KEY_FILE" [--clear-cache]
 ```
+
+### Command-Line Options
+
+- `-r, --report-name`: Name of the Lacework report definition (required)
+- `-k, --api-key-file`: Path to the Lacework API key JSON file (required)
+- `--clear-cache`: Clear all cached data before running (forces fresh API calls)
 
 ### Examples
 
@@ -92,16 +98,24 @@ python3 script/compliance_framework_mapping.py -r "REPORT_NAME" -k "API_KEY_FILE
 # AWS ISO 27001:2013 framework
 python3 script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json
 
+# Clear cache and run with fresh data
+python3 script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json --clear-cache
+
 # Show help
 python3 script/compliance_framework_mapping.py --help
 ```
 
 ## Output
 
-Generates a CSV report:
+Generates a comprehensive CSV report:
 - **File:** `output/my_report_name_compliance.csv`
-- **Columns:** Policy Name, Policy ID, Severity, Status, Framework Name, Policy Type, Compliant Resources, Non-Compliant Resources, Accounts with Violations
+- **Columns:** 
+  - Policy Name, Policy ID, Severity, Status, Framework Name, Policy Type
+  - Compliant Resources, Non-Compliant Resources, Accounts with Violations
+  - **Description** (policy description with preserved formatting)
+  - **Remediation** (detailed remediation steps with preserved formatting)
 - **Sorting:** Policy Type → Status → Severity → Policy ID
+- **Format:** CSV with proper quoting for multi-line text fields (Excel-compatible)
 
 ## Architecture
 
