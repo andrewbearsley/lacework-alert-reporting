@@ -1,6 +1,6 @@
 # Lacework Framework Mapping
 
-This repository automates the extraction and analysis of compliance data for the a compliance framework using the Lacework CLI and Python SDK.
+This repository automates the extraction and analysis of compliance data for a compliance framework using the Lacework CLI and Python SDK.
 
 This script handles the workflow:
 1. Retrieves the report definition
@@ -14,8 +14,8 @@ This script handles the workflow:
 
 - Python 3.7+
 - Lacework CLI installed and configured
-- Lacework Python SDK: `pip install laceworksdk`
-- API credentials eg. `api-key/my-api-key.json`
+- Lacework Python SDK: `pip3 install laceworksdk`
+- LAcework API key eg. `api-key/my-api-key.json`
 
 ### Lacework CLI
 
