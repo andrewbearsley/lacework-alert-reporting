@@ -1,6 +1,6 @@
-# Lacework Framework Mapping
+# Lacework FortiCNAPP - AWS Framework Mapping
 
-This repository automates the extraction and analysis of compliance data for a compliance framework using the Lacework CLI and Python SDK.
+This repository automates the extraction and analysis of compliance data for an AWS compliance framework using the Lacework CLI and Python SDK.
 
 This script handles the workflow:
 1. Retrieves the report definition
