@@ -107,7 +107,7 @@ python3 script/compliance_framework_mapping.py --help
 
 ## Output
 
-Generates a comprehensive CSV report:
+Generates a CSV report:
 - **File:** `output/my_report_name_compliance.csv`
 - **Columns:** 
   - Policy Name, Policy ID, Severity, Status, Framework Name, Policy Type
@@ -120,9 +120,9 @@ Generates a comprehensive CSV report:
 ## Architecture
 
 - **CLI-based compliance reports:** Uses Lacework CLI for custom framework support
-- **Comprehensive caching:** Report definitions, policy details, and compliance reports
+- **Caching:** Report definitions, policy details, and compliance reports
 - **Rate limiting:** HTTP 429 handling with exponential backoff
-- **Error handling:** Robust retry logic and graceful degradation
+- **Error handling:** Retry logic and graceful degradation
 
 ## References
 - CLI Documentation: [Get started with Lacework FortiCNAPP CLI](https://docs.fortinet.com/document/lacework-forticnapp/latest/cli-reference/68020/get-started-with-the-lacework-forticnapp-cli)
