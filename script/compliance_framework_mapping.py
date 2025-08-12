@@ -557,12 +557,6 @@ def write_compliance_csv(policies_data, compliance_stats, output_file, framework
                 description = raw_data.get('description', 'N/A')
                 remediation = raw_data.get('remediation', 'N/A')
                 
-                # Normalize carriage returns and line breaks in text fields
-                if description != 'N/A':
-                    description = description.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
-                if remediation != 'N/A':
-                    remediation = remediation.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
-                
                 writer.writerow({
                     'Policy Name': policy['policy_name'],
                     'Policy ID': policy_id,
