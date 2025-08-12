@@ -6,7 +6,7 @@ This script handles the workflow:
 1. Retrieves the report definition
 2. Extracts unique policy IDs from the report definition
 3. Retrieves policy details (with caching and rate limiting)
-4. Gets list of AWS accounts from cloud integrations
+4. Lists AWS accounts from cloud integrations
 5. Fetches compliance reports for each account using Lacework CLI
 6. Aggregates compliance statistics and writes to CSV
 
@@ -14,8 +14,8 @@ This script handles the workflow:
 
 - Python 3.7+
 - Lacework CLI installed and configured
+- Lacework API key: `api-key/my-api-key.json`
 - Lacework Python SDK: `pip3 install laceworksdk`
-- LAcework API key eg. `api-key/my-api-key.json`
 
 ### Lacework CLI
 
