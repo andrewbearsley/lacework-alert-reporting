@@ -133,5 +133,3 @@ https://docs.fortinet.com/document/lacework-forticnapp/latest/api-reference/8631
 https://docs.fortinet.com/document/lacework-forticnapp/latest/lql-reference/598361/lql-overview
 - Lacework Python SDK Documentation: https://lacework.github.io/python-sdk
 
-
-
