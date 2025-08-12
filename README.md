@@ -70,30 +70,30 @@ winget install Python.Python.3
 
 Verify installation:
 ```bash
-python --version
+python3 --version
 ```
 
 ### Install Lacework Python SDK
 
 Docs: https://lacework.github.io/python-sdk
 ```bash
-pip install laceworksdk
+pip3 install laceworksdk
 ```
 
 ## Usage
 
 ```bash
-python script/compliance_framework_mapping.py -r "REPORT_NAME" -k "API_KEY_FILE"
+python3 script/compliance_framework_mapping.py -r "REPORT_NAME" -k "API_KEY_FILE"
 ```
 
 ### Examples
 
 ```bash
 # AWS ISO 27001:2013 framework
-python script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json
+python3 script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json
 
 # Show help
-python script/compliance_framework_mapping.py --help
+python3 script/compliance_framework_mapping.py --help
 ```
 
 ## Output
