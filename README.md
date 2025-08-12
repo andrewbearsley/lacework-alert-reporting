@@ -126,8 +126,9 @@ Generates a comprehensive CSV report:
 
 ## References
 - Lacework CLI Documentation: https://docs.lacework.com/cli
-- Lacework Python SDK Documentation: https://lacework.github.io/python-sdk
 - Lacework API Documentation: https://docs.lacework.com/api
+- Lacework Python SDK Documentation: https://lacework.github.io/python-sdk
+
 
 
 
