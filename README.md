@@ -124,6 +124,16 @@ Generates a CSV report:
 - **Rate limiting:** HTTP 429 handling with exponential backoff
 - **Error handling:** Retry logic and graceful degradation
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Third-Party Licenses
+
+This project includes software from third parties. The full license text for each can be found in the `LICENSES` directory.
+
+* **Lacework Python SDK:** [MIT License](./LICENSES/LACEWORK_SDK_LICENSE.md)
+
 ## References
 - CLI Documentation: [Get started with Lacework FortiCNAPP CLI](https://docs.fortinet.com/document/lacework-forticnapp/latest/cli-reference/68020/get-started-with-the-lacework-forticnapp-cli)
 - API Documentation: [About the Lacework FortiCNAPP API](https://docs.fortinet.com/document/lacework-forticnapp/latest/api-reference/863111/about-the-lacework-forticnapp-api)
