@@ -510,7 +510,9 @@ def write_compliance_csv(policies_data, compliance_stats, output_file, framework
         'Policy Type',
         'Compliant Resources',
         'Non-Compliant Resources',
-        'Accounts with Violations'
+        'Accounts with Violations',
+        'Description',
+        'Remediation'
     ]
     
     # Define severity and status order for sorting (case-insensitive)
@@ -550,6 +552,17 @@ def write_compliance_csv(policies_data, compliance_stats, output_file, framework
                     'accounts_with_violations': 0
                 })
                 
+                # Extract description and remediation from raw_data if available
+                raw_data = policy.get('raw_data', {})
+                description = raw_data.get('description', 'N/A')
+                remediation = raw_data.get('remediation', 'N/A')
+                
+                # Normalize carriage returns and line breaks in text fields
+                if description != 'N/A':
+                    description = description.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+                if remediation != 'N/A':
+                    remediation = remediation.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
+                
                 writer.writerow({
                     'Policy Name': policy['policy_name'],
                     'Policy ID': policy_id,
@@ -559,7 +572,9 @@ def write_compliance_csv(policies_data, compliance_stats, output_file, framework
                     'Policy Type': policy.get('policy_type', 'Unknown'),
                     'Compliant Resources': stats['compliant'],
                     'Non-Compliant Resources': stats['non_compliant'],
-                    'Accounts with Violations': stats['accounts_with_violations']
+                    'Accounts with Violations': stats['accounts_with_violations'],
+                    'Description': description,
+                    'Remediation': remediation
                 })
         
         print(f"Successfully wrote {len(policies_data)} policies to {output_file}")
