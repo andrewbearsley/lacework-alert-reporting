@@ -125,7 +125,7 @@ Generates a comprehensive CSV report:
 - **Error handling:** Robust retry logic and graceful degradation
 
 ## References
-
+- Lacework CLI Documentation: https://docs.lacework.com/cli
 - Lacework Python SDK Documentation: https://lacework.github.io/python-sdk
 - Lacework API Documentation: https://docs.lacework.com/api
 
