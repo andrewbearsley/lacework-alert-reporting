@@ -307,7 +307,7 @@ def save_compliance_report_to_cache(cache_dir: Path, account_id: str, report_ide
         print(f"Warning: Error writing cache file for {account_id}: {e}")
 
 
-def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: Path) -> Optional[Dict]:
+def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: Path, credentials: Dict) -> Optional[Dict]:
     """Get compliance report using Lacework CLI as fallback with rate limiting."""
     max_retries = 3
     base_delay = 1.0
@@ -319,14 +319,20 @@ def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: 
             else:
                 print(f"  Fetching compliance report via CLI for account {account_id}...")
             
-            # Run the lacework CLI command
+            # Run the lacework CLI command with explicit credentials
             cmd = [
                 "lacework", "compliance", "aws", "get-report", account_id,
                 "--report_name", report_name,
                 "--details", "--json"
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            # Set up environment variables for Lacework CLI authentication
+            env = os.environ.copy()
+            env['LW_ACCOUNT'] = credentials.get('account', '')
+            env['LW_API_KEY'] = credentials.get('keyId', '')
+            env['LW_API_SECRET'] = credentials.get('secret', '')
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
             
             if result.returncode == 0:
                 # Parse the JSON output
@@ -385,7 +391,7 @@ def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: 
     return None
 
 
-def get_compliance_report_for_account(account_id: str, report_name: str, cache_dir: Path) -> Optional[Dict]:
+def get_compliance_report_for_account(account_id: str, report_name: str, cache_dir: Path, credentials: Dict) -> Optional[Dict]:
     """Get compliance report for a specific AWS account using CLI only (SDK doesn't support custom frameworks)."""
     report_hash = hashlib.md5(report_name.encode()).hexdigest()[:8]
     
@@ -396,7 +402,7 @@ def get_compliance_report_for_account(account_id: str, report_name: str, cache_d
         return cached_report
     
     # Use CLI directly (SDK doesn't support custom report definitions)
-    return get_compliance_report_via_cli(account_id, report_name, cache_dir)
+    return get_compliance_report_via_cli(account_id, report_name, cache_dir, credentials)
 
 
 def extract_policy_compliance_stats(report_data: Dict, policy_ids: List[str]) -> Dict[str, Dict]:
@@ -641,10 +647,17 @@ def main():
     print(f"Found {cached_count} policies already cached, {len(policy_ids) - cached_count} to retrieve from API")
     
     policies_data = []
+    excluded_policies = []
     for i, policy_id in enumerate(policy_ids, 1):
         print(f"Processing policy {i}/{len(policy_ids)}: {policy_id}")
         policy_details = get_policy_details_with_retry(client, policy_id, policy_cache_dir)
-        policies_data.append(policy_details)
+        
+        # Filter out policies with policy type "violation"
+        if policy_details.get('policy_type', '').lower() == 'violation':
+            excluded_policies.append(policy_details)
+            print(f"  Excluding policy {policy_id} (policy type: violation)")
+        else:
+            policies_data.append(policy_details)
     
     # Step 4: Get AWS accounts
     print("Step 6: Retrieving AWS accounts...")
@@ -665,7 +678,7 @@ def main():
         account_id = account['account_id']
         print(f"Processing account {i}/{len(aws_accounts)}: {account_id} ({account['integration_name']})")
         
-        report_data = get_compliance_report_for_account(account_id, report_name, compliance_cache_dir)
+        report_data = get_compliance_report_for_account(account_id, report_name, compliance_cache_dir, credentials)
         
         if report_data:
             account_stats = extract_policy_compliance_stats(report_data, policy_ids)
