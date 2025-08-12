@@ -125,10 +125,13 @@ Generates a comprehensive CSV report:
 - **Error handling:** Robust retry logic and graceful degradation
 
 ## References
-- Lacework CLI Documentation: https://docs.lacework.com/cli
-- Lacework API Documentation: https://docs.lacework.com/api
+- Lacework CLI Documentation: 
+https://docs.fortinet.com/document/lacework-forticnapp/latest/cli-reference/68020/get-started-with-the-lacework-forticnapp-cli
+- Lacework API Documentation:
+https://docs.fortinet.com/document/lacework-forticnapp/latest/api-reference/863111/about-the-lacework-forticnapp-api
+- Lacework LQL Documentation: 
+https://docs.fortinet.com/document/lacework-forticnapp/latest/lql-reference/598361/lql-overview
 - Lacework Python SDK Documentation: https://lacework.github.io/python-sdk
-
 
 
 
