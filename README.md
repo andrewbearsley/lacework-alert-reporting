@@ -39,7 +39,7 @@ iwr -useb https://raw.githubusercontent.com/lacework/go-sdk/main/scripts/install
 #### Configure Lacework CLI
 ```bash
 # Verify installation
-lacework --version
+lacework version
 
 # Initial setup
 lacework configure
