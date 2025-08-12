@@ -37,8 +37,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description='Extract compliance data from Lacework custom framework',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Examples:
-  python compliance_framework_mapping.py -r "UNSW AWS Cyber Security Standards" -k api-key/unsw-lw-api-key.json
+        epilog="""Example:
   python compliance_framework_mapping.py --report-name "My Custom Framework" --api-key-file api-key/my-key.json
         """
     )
@@ -46,13 +45,13 @@ def parse_arguments():
     parser.add_argument(
         '-r', '--report-name',
         required=True,
-        help='Name of the Lacework report definition (e.g., "UNSW AWS Cyber Security Standards")'
+        help='Name of the Lacework report definition (e.g., "My Custom Framework")'
     )
     
     parser.add_argument(
         '-k', '--api-key-file',
         required=True,
-        help='Path to the Lacework API key JSON file (e.g., api-key/unsw-lw-api-key.json)'
+        help='Path to the Lacework API key JSON file (e.g., api-key/my-key.json)'
     )
     
     return parser.parse_args()
