@@ -3,13 +3,20 @@
 Compliance-Based Lacework Framework Mapping Script
 
 This script performs the complete workflow using compliance reports:
-1. Retrieves the report definition for 'UNSW AWS Cyber Security Standards'
+1. Retrieves the report definition for custom frameworks
 2. Extracts unique policy IDs from the report definition
 3. Retrieves policy details (with caching and 429 handling)
-4. Gets list of AWS accounts from cloud integrations
-5. For each AWS account, fetches the most recent compliance report (with caching)
-6. Extracts compliant/non-compliant stats per policy from reports
-7. Writes comprehensive output to CSV
+4. Automatically detects cloud provider from report name (AWS, Azure, GCP, OCI)
+5. Gets list of cloud accounts from cloud integrations
+6. For each cloud account, fetches the most recent compliance report (with caching)
+7. Extracts compliant/non-compliant stats per policy from reports
+8. Writes comprehensive output to CSV
+
+Supports multiple cloud providers:
+- AWS (including "Amazon Web Services")
+- Azure
+- GCP (including "Google Cloud Platform") 
+- OCI (including "Oracle Cloud Infrastructure")
 """
 
 import argparse
@@ -67,6 +74,71 @@ def parse_arguments():
 def generate_filename_from_report_name(report_name: str) -> str:
     """Generate a filename-safe string from report name (lowercase, spaces and slashes to underscores)."""
     return report_name.lower().replace(' ', '_').replace('/', '_')
+
+
+def detect_cloud_provider_from_report_name(report_name: str) -> str:
+    """Detect cloud provider from report name.
+    
+    Args:
+        report_name: The name of the report definition
+        
+    Returns:
+        Cloud provider identifier: 'aws', 'azure', 'gcp', or 'oci'
+        
+    Raises:
+        ValueError: If cloud provider cannot be determined
+    """
+    report_name_lower = report_name.lower()
+    
+    # Check for AWS (including "Amazon Web Services")
+    if 'aws' in report_name_lower or 'amazon web services' in report_name_lower:
+        return 'aws'
+    
+    # Check for Azure
+    if 'azure' in report_name_lower:
+        return 'azure'
+    
+    # Check for GCP (Google Cloud Platform)
+    if 'gcp' in report_name_lower or 'google cloud' in report_name_lower:
+        return 'gcp'
+    
+    # Check for OCI (Oracle Cloud Infrastructure)
+    if 'oci' in report_name_lower or 'oracle cloud' in report_name_lower:
+        return 'oci'
+    
+    raise ValueError(f"Cannot determine cloud provider from report name: '{report_name}'. "
+                   f"Report name must contain 'aws', 'azure', 'gcp', or 'oci' (or 'amazon web services', 'google cloud', 'oracle cloud')")
+
+
+def get_cloud_integration_type(cloud_provider: str) -> str:
+    """Get the Lacework cloud integration type for the specified cloud provider."""
+    integration_types = {
+        'aws': 'AwsCfg',
+        'azure': 'AzureCfg', 
+        'gcp': 'GcpCfg',
+        'oci': 'OciCfg'
+    }
+    return integration_types.get(cloud_provider, 'AwsCfg')  # Default to AWS for backward compatibility
+
+
+def get_cloud_account_id_field(cloud_provider: str) -> str:
+    """Get the account ID field name for the specified cloud provider."""
+    account_id_fields = {
+        'aws': 'awsAccountId',
+        'azure': 'tenantId',  # Could also be 'subscriptionId' depending on scope
+        'gcp': 'projectId',
+        'oci': 'tenancyId'
+    }
+    return account_id_fields.get(cloud_provider, 'awsAccountId')  # Default to AWS for backward compatibility
+
+
+def get_cli_compliance_command(cloud_provider: str, account_id: str, report_name: str) -> List[str]:
+    """Generate the Lacework CLI command for compliance reports based on cloud provider."""
+    return [
+        "lacework", "compliance", cloud_provider, "get-report", account_id,
+        "--report_name", report_name,
+        "--details", "--json"
+    ]
 
 
 def load_api_credentials(api_key_file):
@@ -258,30 +330,33 @@ def get_policy_details_with_retry(client, policy_id: str, cache_dir: Path) -> Di
         return result
 
 
-def get_aws_accounts(client):
-    """Get list of AWS accounts from cloud integrations."""
+def get_cloud_accounts(client, cloud_provider: str):
+    """Get list of cloud accounts from cloud integrations."""
     try:
-        print("  Retrieving AWS cloud account integrations...")
-        # Get AWS configuration integrations
-        response = api_call_with_retry(client.cloud_accounts.get, type="AwsCfg")
+        integration_type = get_cloud_integration_type(cloud_provider)
+        account_id_field = get_cloud_account_id_field(cloud_provider)
         
-        aws_accounts = []
+        print(f"  Retrieving {cloud_provider.upper()} cloud account integrations...")
+        # Get cloud configuration integrations
+        response = api_call_with_retry(client.cloud_accounts.get, type=integration_type)
+        
+        cloud_accounts = []
         if 'data' in response:
             for integration in response['data']:
                 if integration.get('enabled') and 'data' in integration:
-                    account_id = integration['data'].get('awsAccountId')
+                    account_id = integration['data'].get(account_id_field)
                     if account_id:
-                        aws_accounts.append({
+                        cloud_accounts.append({
                             'account_id': account_id,
                             'integration_name': integration.get('name', 'Unknown'),
                             'integration_guid': integration.get('intgGuid', '')
                         })
         
-        print(f"  Found {len(aws_accounts)} AWS accounts")
-        return aws_accounts
+        print(f"  Found {len(cloud_accounts)} {cloud_provider.upper()} accounts")
+        return cloud_accounts
         
     except Exception as e:
-        print(f"Error retrieving AWS accounts: {e}")
+        print(f"Error retrieving {cloud_provider.upper()} accounts: {e}")
         return []
 
 
@@ -313,7 +388,7 @@ def save_compliance_report_to_cache(cache_dir: Path, account_id: str, report_ide
         print(f"Warning: Error writing cache file for {account_id}: {e}")
 
 
-def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: Path, credentials: Dict) -> Optional[Dict]:
+def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: Path, credentials: Dict, cloud_provider: str) -> Optional[Dict]:
     """Get compliance report using Lacework CLI as fallback with rate limiting."""
     max_retries = 3
     base_delay = 1.0
@@ -326,11 +401,7 @@ def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: 
                 print(f"  Fetching compliance report via CLI for account {account_id}...")
             
             # Run the lacework CLI command with explicit credentials
-            cmd = [
-                "lacework", "compliance", "aws", "get-report", account_id,
-                "--report_name", report_name,
-                "--details", "--json"
-            ]
+            cmd = get_cli_compliance_command(cloud_provider, account_id, report_name)
             
             # Set up environment variables for Lacework CLI authentication
             env = os.environ.copy()
@@ -397,8 +468,8 @@ def get_compliance_report_via_cli(account_id: str, report_name: str, cache_dir: 
     return None
 
 
-def get_compliance_report_for_account(account_id: str, report_name: str, cache_dir: Path, credentials: Dict) -> Optional[Dict]:
-    """Get compliance report for a specific AWS account using CLI only (SDK doesn't support custom frameworks)."""
+def get_compliance_report_for_account(account_id: str, report_name: str, cache_dir: Path, credentials: Dict, cloud_provider: str) -> Optional[Dict]:
+    """Get compliance report for a specific cloud account using CLI only (SDK doesn't support custom frameworks)."""
     report_hash = hashlib.md5(report_name.encode()).hexdigest()[:8]
     
     # Try to load from cache first
@@ -408,7 +479,7 @@ def get_compliance_report_for_account(account_id: str, report_name: str, cache_d
         return cached_report
     
     # Use CLI directly (SDK doesn't support custom report definitions)
-    return get_compliance_report_via_cli(account_id, report_name, cache_dir, credentials)
+    return get_compliance_report_via_cli(account_id, report_name, cache_dir, credentials, cloud_provider)
 
 
 def extract_policy_compliance_stats(report_data: Dict, policy_ids: List[str]) -> Dict[str, Dict]:
@@ -474,7 +545,7 @@ def extract_policy_compliance_stats(report_data: Dict, policy_ids: List[str]) ->
 
 
 def aggregate_policy_compliance_across_accounts(all_account_stats: Dict[str, Dict]) -> Dict[str, Dict]:
-    """Aggregate compliance statistics across all AWS accounts for each policy."""
+    """Aggregate compliance statistics across all cloud accounts for each policy."""
     aggregated_stats = {}
     
     # Get all unique policy IDs
@@ -691,26 +762,35 @@ def main():
         else:
             policies_data.append(policy_details)
     
-    # Step 4: Get AWS accounts
-    print("Step 6: Retrieving AWS accounts...")
-    aws_accounts = get_aws_accounts(client)
-    
-    if not aws_accounts:
-        print("No AWS accounts found. Cannot proceed with compliance analysis.")
+    # Step 4: Detect cloud provider from report name
+    print("Step 6: Detecting cloud provider...")
+    try:
+        cloud_provider = detect_cloud_provider_from_report_name(report_name)
+        print(f"Detected cloud provider: {cloud_provider.upper()}")
+    except ValueError as e:
+        print(f"Error: {e}")
         sys.exit(1)
     
-    # Step 5: Get compliance reports for each account
-    print("Step 7: Retrieving compliance reports...")
+    # Step 5: Get cloud accounts
+    print("Step 7: Retrieving cloud accounts...")
+    cloud_accounts = get_cloud_accounts(client, cloud_provider)
+    
+    if not cloud_accounts:
+        print(f"No {cloud_provider.upper()} accounts found. Cannot proceed with compliance analysis.")
+        sys.exit(1)
+    
+    # Step 6: Get compliance reports for each account
+    print("Step 8: Retrieving compliance reports...")
     # For custom report definitions, we need to use the report name
-    report_name = report_definition.get('reportName', 'UNSW AWS Cyber Security Standards')
+    report_name = report_definition.get('reportName', f'{cloud_provider.upper()} Custom Framework')
     print(f"Using report name: {report_name}")
     
     all_account_stats = {}
-    for i, account in enumerate(aws_accounts, 1):
+    for i, account in enumerate(cloud_accounts, 1):
         account_id = account['account_id']
-        print(f"Processing account {i}/{len(aws_accounts)}: {account_id} ({account['integration_name']})")
+        print(f"Processing account {i}/{len(cloud_accounts)}: {account_id} ({account['integration_name']})")
         
-        report_data = get_compliance_report_for_account(account_id, report_name, compliance_cache_dir, credentials)
+        report_data = get_compliance_report_for_account(account_id, report_name, compliance_cache_dir, credentials, cloud_provider)
         
         if report_data:
             account_stats = extract_policy_compliance_stats(report_data, policy_ids)
@@ -718,13 +798,13 @@ def main():
         else:
             print(f"  No compliance data available for account {account_id}")
     
-    # Step 6: Aggregate compliance statistics
-    print("Step 8: Aggregating compliance statistics...")
+    # Step 7: Aggregate compliance statistics
+    print("Step 9: Aggregating compliance statistics...")
     aggregated_compliance_stats = aggregate_policy_compliance_across_accounts(all_account_stats)
     
-    # Step 7: Write comprehensive CSV output
-    print("Step 9: Writing comprehensive CSV output...")
-    framework_name = report_definition.get('reportName', 'UNSW AWS Cyber Security Standards')
+    # Step 8: Write comprehensive CSV output
+    print("Step 10: Writing comprehensive CSV output...")
+    framework_name = report_definition.get('reportName', f'{cloud_provider.upper()} Custom Framework')
     output_file = output_dir / f"{report_filename}_compliance.csv"
     
     write_compliance_csv(policies_data, aggregated_compliance_stats, output_file, framework_name)
@@ -733,7 +813,7 @@ def main():
     print("\n=== Final Summary ===")
     print(f"Framework: {framework_name}")
     print(f"Total policies processed: {len(policies_data)}")
-    print(f"AWS accounts analyzed: {len(aws_accounts)}")
+    print(f"{cloud_provider.upper()} accounts analyzed: {len(cloud_accounts)}")
     print(f"Output file: {output_file}")
     
     # Statistics

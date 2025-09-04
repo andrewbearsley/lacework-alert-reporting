@@ -1,14 +1,15 @@
-# Lacework FortiCNAPP - AWS Framework Mapping
+# Lacework FortiCNAPP - Multi-Cloud Framework Mapping
 
-This repository automates the extraction and analysis of compliance data for an AWS compliance framework using the Lacework CLI and Python SDK.
+This repository automates the extraction and analysis of compliance data for cloud compliance frameworks using the Lacework CLI and Python SDK. Supports AWS, Azure, GCP, and OCI.
 
 This script handles the workflow:
 1. Retrieves the report definition
 2. Extracts unique policy IDs from the report definition
 3. Retrieves policy details (with caching and rate limiting)
-4. Lists AWS accounts from cloud integrations
-5. Fetches compliance reports for each account using Lacework CLI
-6. Aggregates compliance statistics and writes to CSV
+4. Automatically detects cloud provider from report name (AWS, Azure, GCP, OCI)
+5. Lists cloud accounts from cloud integrations
+6. Fetches compliance reports for each account using Lacework CLI
+7. Aggregates compliance statistics and writes to CSV
 
 ## Prerequisites
 
@@ -98,6 +99,12 @@ python3 script/compliance_framework_mapping.py -r "REPORT_NAME" -k "API_KEY_FILE
 # AWS ISO 27001:2013 framework
 python3 script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json
 
+# Azure PCI DSS 4.0.0 framework
+python3 script/compliance_framework_mapping.py -r "Azure PCI DSS 4.0.0" -k api-key/my-lw-api-key.json
+
+# GCP CIS Benchmark framework
+python3 script/compliance_framework_mapping.py -r "GCP CIS Microsoft Google Cloud Platform Foundations Benchmark" -k api-key/my-lw-api-key.json
+
 # Clear cache and run with fresh data
 python3 script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json --clear-cache
 
@@ -119,10 +126,20 @@ Generates a CSV report:
 
 ## Architecture
 
+- **Multi-cloud support:** Automatically detects cloud provider from report name (AWS, Azure, GCP, OCI)
 - **CLI-based compliance reports:** Uses Lacework CLI for custom framework support
 - **Caching:** Report definitions, policy details, and compliance reports
 - **Rate limiting:** HTTP 429 handling with exponential backoff
 - **Error handling:** Retry logic and graceful degradation
+
+## Supported Cloud Providers
+
+The script automatically detects the cloud provider from the report name:
+
+- **AWS:** Reports containing "aws" or "amazon web services"
+- **Azure:** Reports containing "azure"
+- **GCP:** Reports containing "gcp" or "google cloud"
+- **OCI:** Reports containing "oci" or "oracle cloud"
 
 ## References
 
