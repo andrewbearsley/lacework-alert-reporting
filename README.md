@@ -1,15 +1,13 @@
-# Lacework FortiCNAPP - Multi-Cloud Framework Mapping
+# Lacework Alert Reporting Tool
 
-This repository automates the extraction and analysis of compliance data for cloud compliance frameworks using the Lacework CLI and Python SDK. Supports AWS, Azure, GCP, and OCI.
+This repository provides automated alert reporting for Lacework compliance alerts using the Lacework CLI and Python SDK. It generates a report of compliance alerts with policy details and remediation information.
 
-This script handles the workflow:
-1. Retrieves the report definition
-2. Extracts unique policy IDs from the report definition
-3. Retrieves policy details (with caching and rate limiting)
-4. Automatically detects cloud provider from report name (AWS, Azure, GCP, OCI)
-5. Lists cloud accounts from cloud integrations
-6. Fetches compliance reports for each account using Lacework CLI
-7. Aggregates compliance statistics and writes to CSV
+**Features:**
+- Configurable date ranges (defaults to previous week Mon-Sun)
+- Retrieves compliance alerts using Lacework API and CLI
+- Enriches alerts with policy details using intelligent caching
+- Generates CSV reports with alert information
+- Handles rate limiting and retry logic
 
 ## Prerequisites
 
@@ -84,62 +82,94 @@ pip3 install laceworksdk
 ## Usage
 
 ```bash
-python3 script/compliance_framework_mapping.py -r "REPORT_NAME" -k "API_KEY_FILE" [--clear-cache]
+python3 script/lacework_alert_reporting.py -k "API_KEY_FILE" [OPTIONS]
 ```
 
 ### Command-Line Options
-
-- `-r, --report-name`: Name of the Lacework report definition (required)
 - `-k, --api-key-file`: Path to the Lacework API key JSON file (required)
+- `--start-date`: Start date for alert retrieval (YYYY-MM-DD format)
+- `--end-date`: End date for alert retrieval (YYYY-MM-DD format)
+- `--current-week`: Use current week (Monday to Sunday) instead of previous week
+- `-r, --report`: Filter alerts to only include policies from the specified compliance report (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")
 - `--clear-cache`: Clear all cached data before running (forces fresh API calls)
+- `--output-file`: Custom output filename (default: auto-generated based on date range)
 
 ### Examples
 
 ```bash
-# AWS ISO 27001:2013 framework
-python3 script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json
+# Use default (previous week Mon-Sun)
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json
 
-# Azure PCI DSS 4.0.0 framework
-python3 script/compliance_framework_mapping.py -r "Azure PCI DSS 4.0.0" -k api-key/my-lw-api-key.json
+# Use current week Mon-Sun
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --current-week
 
-# GCP CIS Benchmark framework
-python3 script/compliance_framework_mapping.py -r "GCP CIS Microsoft Google Cloud Platform Foundations Benchmark" -k api-key/my-lw-api-key.json
+# Specify custom date range
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --start-date 2024-01-01 --end-date 2024-01-07
 
-# Clear cache and run with fresh data
-python3 script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-lw-api-key.json --clear-cache
+# Filter by compliance report
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --current-week -r "CIS Amazon Web Services Foundations Benchmark v1.4.0"
+
+# Filter by PCI DSS compliance report
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --current-week -r "AWS PCI DSS 4.0.0"
+
+# Clear cache and use custom output file
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --clear-cache --output-file my_alerts.csv
 
 # Show help
-python3 script/compliance_framework_mapping.py --help
+python3 script/lacework_alert_reporting.py --help
 ```
+
+### Available Compliance Reports
+
+To see all available compliance reports in your Lacework environment:
+
+```bash
+# List all available report definitions
+lacework report-definitions list
+```
+
+Common compliance reports include:
+- **AWS Foundational Security Best Practices (FSBP) Standard**
+- **AWS PCI DSS 4.0.0**
+- **AWS NIST 800-53 rev5**
+- **Azure CIS Benchmark**
+- **GCP CIS Benchmark**
+- **Custom reports** (e.g., "UNSW AWS Cyber Security Standards")
 
 ## Output
 
 Generates a CSV report:
-- **File:** `output/my_report_name_compliance.csv`
-- **Columns:** 
-  - Policy Name, Policy ID, Severity, Status, Framework Name, Policy Type
-  - Compliant Resources, Non-Compliant Resources, Accounts with Violations
-  - **Description** (policy description with preserved formatting)
-  - **Remediation** (detailed remediation steps with preserved formatting)
-- **Sorting:** Policy Type → Status → Severity → Policy ID
+- **File:** 
+  - Default: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD.csv`
+  - With report: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD_REPORT-NAME.csv`
+  - Custom: `output/CUSTOM_FILENAME.csv` (when using `--output-file`)
+- **Columns:**
+  - Policy ID, Policy Title, Description, Remediation Steps
+  - Severity, Resource, Region, Account, Date/Time, Alert ID
+- **Sorting:** Severity → Date/Time
 - **Format:** CSV with proper quoting for multi-line text fields (Excel-compatible)
+- **Resource Enhancement:** AWS resources include account ID and alias information for better context
 
 ## Architecture
 
-- **Multi-cloud support:** Automatically detects cloud provider from report name (AWS, Azure, GCP, OCI)
-- **CLI-based compliance reports:** Uses Lacework CLI for custom framework support
-- **Caching:** Report definitions, policy details, and compliance reports
+- **Flexible date ranges:** Configurable date range selection with sensible defaults
+- **Dual API approach:** Uses both Lacework SDK and CLI for alert retrieval
+- **Policy enrichment:** Combines alert data with detailed policy information
+- **Intelligent caching:** Reuses policy details cache for performance optimization
 - **Rate limiting:** HTTP 429 handling with exponential backoff
 - **Error handling:** Retry logic and graceful degradation
 
-## Supported Cloud Providers
+## Features
 
-The script automatically detects the cloud provider from the report name:
-
-- **AWS:** Reports containing "aws" or "amazon web services"
-- **Azure:** Reports containing "azure"
-- **GCP:** Reports containing "gcp" or "google cloud"
-- **OCI:** Reports containing "oci" or "oracle cloud"
+- **Configurable date ranges:** Previous week (default), current week, or custom date ranges
+- **Compliance report filtering:** Filter alerts by specific compliance frameworks (e.g., AWS FSBP, PCI DSS, custom reports)
+- **Detailed Alert data:** Retrieves all compliance alerts for the specified time period
+- **Policy enrichment:** Automatically enriches alerts with policy details and remediation steps
+- **Intelligent caching:** Caches policy details and report definitions to avoid redundant API calls
+- **Rate limiting:** Handles API rate limits with exponential backoff and retry logic
+- **Enhanced resource information:** AWS resources include account ID and alias for better context
+- **Smart filename generation:** Report names automatically included in output filenames
+- **Formatted output:** Generates well-formatted CSV reports suitable for analysis
 
 ## References
 

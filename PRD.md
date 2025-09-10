@@ -1,49 +1,56 @@
 # Product Requirements Document (PRD)
-## Lacework Framework Compliance Mapping Tool
+## Lacework Alert Reporting Tool
 
 ---
 
 ## 1. Executive Summary
 
-The Lacework Framework Compliance Mapping Tool is a Python-based automation solution that extracts, analyzes, and reports compliance data for custom Lacework security frameworks across multiple AWS accounts. The tool provides comprehensive compliance statistics in a well-formatted CSV report, enabling security teams to efficiently monitor and analyze their cloud security posture.
+The Lacework Alert Reporting Tool is a Python-based automation solution that generates comprehensive reports of Lacework compliance alerts with policy details and remediation information. The tool provides automated alert analysis in well-formatted CSV reports, enabling security teams to efficiently monitor and respond to compliance violations.
 
 ### Key Value Proposition
-- **Automated compliance reporting** for custom Lacework frameworks
-- **Multi-account analysis** across entire AWS organization
-- **Comprehensive data aggregation** with intelligent caching
+- **Comprehensive alert analysis** with policy enrichment and remediation details
+- **Flexible date range reporting** with configurable time periods
+- **Automated data aggregation** with intelligent caching
 - **Production-ready reliability** with rate limiting and error handling
+- **Professional reporting** suitable for executive presentation and incident response
 
 ---
 
 ## 2. Problem Statement
 
 ### Current Challenges
-1. **Manual compliance reporting** - Security teams need to manually extract compliance data from Lacework for custom frameworks
-2. **Multi-account complexity** - Organizations with 100+ AWS accounts struggle to get unified compliance views
-3. **Custom framework limitations** - Lacework SDK doesn't support compliance reports for custom frameworks
-4. **Time-intensive analysis** - Manual data collection and aggregation takes significant time and effort
-5. **Inconsistent reporting** - No standardized format for compliance analysis across teams
+1. **Manual alert analysis** - Security teams need to manually analyze compliance alerts and correlate them with policy details
+2. **Time-intensive analysis** - Manual data collection and aggregation takes significant time and effort
+3. **Inconsistent reporting** - No standardized format for alert reporting across teams
+4. **Alert context missing** - Alerts lack detailed policy information and remediation steps
+5. **Delayed incident response** - Manual processes slow down security incident response
+6. **Resource waste** - Repetitive manual tasks consume valuable security team time
 
 ### Business Impact
 - **Inefficient security operations** due to manual processes
-- **Delayed compliance reporting** affecting audit readiness
-- **Incomplete visibility** into organization-wide security posture
+- **Delayed incident response** due to lack of alert context and remediation guidance
+- **Incomplete visibility** into security alert patterns and trends
 - **Resource waste** on repetitive manual tasks
+- **Inconsistent alert prioritization** without standardized reporting
+- **Reduced security team productivity** due to manual alert analysis
 
 ---
 
 ## 3. Solution Overview
 
 ### Product Vision
-A single, configurable Python script that automates the complete workflow of extracting compliance data from Lacework custom frameworks and generating comprehensive CSV reports for security analysis.
+A Python-based automation tool that streamlines Lacework alert reporting workflows, providing security teams with actionable insights through automated alert data extraction, policy enrichment, and comprehensive reporting.
 
 ### Core Capabilities
-1. **Framework-agnostic design** - Works with any custom Lacework framework
-2. **Multi-account processing** - Analyzes compliance across all enabled AWS accounts
-3. **Intelligent caching** - Optimizes API usage and performance
-4. **Robust error handling** - Handles rate limits, retries, and graceful failures
-5. **Configurable execution** - Command-line arguments for flexibility
-6. **Professional output** - Well-formatted CSV with consistent structure
+1. **Flexible date range reporting** - Configurable time periods with sensible defaults
+2. **Comprehensive alert analysis** - Retrieves and analyzes compliance alerts
+3. **Policy enrichment** - Combines alert data with detailed policy information
+4. **Remediation guidance** - Includes detailed remediation steps for each alert
+5. **Dual API approach** - Uses both Lacework SDK and CLI for comprehensive coverage
+6. **Intelligent caching** - Reuses policy details cache for performance optimization
+7. **Robust error handling** - Handles rate limits, retries, and graceful failures
+8. **Configurable execution** - Command-line arguments for flexibility
+9. **Professional output** - Well-formatted CSV with consistent structure
 
 ---
 
@@ -51,98 +58,81 @@ A single, configurable Python script that automates the complete workflow of ext
 
 ### 4.1 Core Functionality
 
-#### FR-001: Framework Definition Retrieval
-- **Description:** Retrieve custom framework definitions from Lacework
-- **Input:** Framework name (e.g., "AWS ISO 27001:2013")
-- **Output:** Framework definition with policy mappings
+#### FR-001: Date Range Configuration
+- **Description:** Provide flexible date range selection for alert retrieval
+- **Input:** Start date, end date, or predefined periods (current week, previous week)
+- **Output:** Validated date range for API calls
 - **Acceptance Criteria:**
-  - Successfully retrieves framework definition by name
-  - Handles framework not found scenarios
-  - Caches framework definition for performance
+  - Defaults to previous week (Monday-Sunday)
+  - Supports custom date ranges in YYYY-MM-DD format
+  - Supports current week option
+  - Validates date format and logical date ordering
 
-#### FR-002: Policy Details Extraction
-- **Description:** Extract detailed information for all policies in the framework
-- **Input:** Policy IDs from framework definition
-- **Output:** Policy details including name, severity, status, type
+#### FR-002: Compliance Alert Retrieval
+- **Description:** Retrieve compliance alerts for specified date range
+- **Input:** Date range and Lacework API credentials
+- **Output:** List of compliance alerts with basic information
 - **Acceptance Criteria:**
-  - Retrieves details for all unique policy IDs
-  - Handles missing or invalid policy IDs
-  - Implements rate limiting and retry logic
-  - Caches policy details to avoid redundant API calls
+  - Uses Lacework SDK for primary alert retrieval
+  - Falls back to Lacework CLI if SDK fails
+  - Handles rate limiting and retry logic
+  - Extracts basic alert information (ID, severity, timestamp, resource details)
 
-#### FR-003: AWS Account Discovery
-- **Description:** Discover all enabled AWS accounts in Lacework
-- **Input:** Lacework API credentials
-- **Output:** List of enabled AWS account integrations
+#### FR-003: Alert Data Enrichment
+- **Description:** Enrich alert data with policy details and remediation information
+- **Input:** Alert data and policy IDs
+- **Output:** Enriched alert data with policy information
 - **Acceptance Criteria:**
-  - Filters for enabled accounts only
-  - Excludes disabled or inactive integrations
-  - Provides account ID and integration metadata
+  - Retrieves policy details for each unique policy ID
+  - Combines alert data with policy information
+  - Includes policy title, description, and remediation steps
+  - Uses existing policy caching mechanism
 
-#### FR-004: Compliance Data Retrieval
-- **Description:** Retrieve compliance reports for each AWS account
-- **Input:** Account ID and framework name
-- **Output:** Compliance statistics per policy per account
+#### FR-004: Alert CSV Report Generation
+- **Description:** Generate comprehensive CSV report with alert data
+- **Input:** Enriched alert data
+- **Output:** Well-formatted CSV file with alert information
 - **Acceptance Criteria:**
-  - Uses Lacework CLI for custom framework support
-  - Handles accounts with no compliance data
-  - Implements caching for performance
-  - Supports rate limiting and retry logic
-
-#### FR-005: Data Aggregation and Analysis
-- **Description:** Aggregate compliance data across all accounts and policies
-- **Input:** Individual account compliance reports
-- **Output:** Consolidated compliance statistics
-- **Acceptance Criteria:**
-  - Calculates compliant/non-compliant resource counts
-  - Identifies accounts with violations per policy
-  - Handles missing or incomplete data gracefully
-
-#### FR-006: CSV Report Generation
-- **Description:** Generate comprehensive CSV report with compliance data
-- **Input:** Aggregated compliance statistics and policy details
-- **Output:** Well-formatted CSV file
-- **Acceptance Criteria:**
-  - Includes all required columns with consistent formatting
-  - Implements multi-level sorting (Policy Type → Status → Severity → Policy ID)
-  - Filters out manual policy types
+  - Includes all required columns: Policy ID, Policy Title, Description, Remediation Steps, Severity, Resource, Region, Account, Date/Time, Alert ID
+  - Implements sorting by severity and date/time
   - Uses consistent CSV quoting for compatibility
+  - Generates appropriate filename based on date range
 
 ### 4.2 Configuration and Usability
 
-#### FR-007: Command-Line Interface
+#### FR-005: Command-Line Interface
 - **Description:** Provide configurable command-line interface
-- **Input:** Framework name and API key file path
+- **Input:** API key file path and optional parameters
 - **Output:** Help text and argument validation
 - **Acceptance Criteria:**
-  - Requires framework name and API key file as arguments
+  - Requires API key file as argument
   - Provides comprehensive help documentation
   - Validates required arguments and shows errors
   - Supports both short and long argument formats
 
-#### FR-008: Dynamic File Naming
-- **Description:** Generate output and cache filenames from framework name
-- **Input:** Framework name (e.g., "AWS ISO 27001:2013")
-- **Output:** Safe filenames (e.g., "aws_iso_27001:2013_compliance.csv")
+#### FR-006: Dynamic File Naming
+- **Description:** Generate output filenames based on date range
+- **Input:** Date range (start date and end date)
+- **Output:** Safe filenames (e.g., "lacework_alerts_2024-01-01_to_2024-01-07.csv")
 - **Acceptance Criteria:**
-  - Converts spaces to underscores
-  - Uses lowercase for consistency
+  - Uses date range in filename format
   - Handles special characters safely
   - Maintains readability
+  - Supports custom output filename option
 
 ### 4.3 Performance and Reliability
 
-#### FR-009: Intelligent Caching
+#### FR-007: Intelligent Caching
 - **Description:** Cache API responses to optimize performance
 - **Input:** API responses from Lacework
 - **Output:** Cached JSON files organized by type
 - **Acceptance Criteria:**
-  - Caches framework definitions, policy details, and compliance reports
-  - Uses cache when available to avoid redundant API calls
+  - Caches policy details to avoid redundant API calls
+  - Uses cache when available to optimize performance
   - Organizes cache files in logical directory structure
   - Handles cache corruption gracefully
 
-#### FR-010: Rate Limiting and Retry Logic
+#### FR-008: Rate Limiting and Retry Logic
 - **Description:** Handle API rate limits with intelligent retry logic
 - **Input:** HTTP 429 responses from Lacework API
 - **Output:** Successful retry with appropriate delays
@@ -152,7 +142,7 @@ A single, configurable Python script that automates the complete workflow of ext
   - Limits retry attempts to prevent infinite loops
   - Works for both SDK and CLI calls
 
-#### FR-011: Error Handling and Logging
+#### FR-009: Error Handling and Logging
 - **Description:** Provide comprehensive error handling and user feedback
 - **Input:** Various error conditions and exceptions
 - **Output:** Clear error messages and graceful degradation
@@ -229,13 +219,11 @@ Account Discovery → Compliance Data Collection → Data Aggregation → CSV Ex
 ### 6.3 File Structure
 
 ```
-lacework-framework-mapping/
+lacework-alert-reporting/
 ├── script/
-│   └── compliance_framework_mapping.py    # Main executable script
+│   └── lacework_alert_reporting.py       # Alert reporting script
 ├── cache/
-│   ├── report-definitions/                # Framework definition cache
-│   ├── policy-details/                    # Policy information cache
-│   └── compliance-reports/                # Compliance data cache
+│   └── policy-details/                    # Policy information cache
 ├── output/                                # Generated CSV reports
 ├── api-key/                              # API credential files
 ├── README.md                             # Documentation
@@ -245,19 +233,6 @@ lacework-framework-mapping/
 ```
 
 ### 6.4 Data Models
-
-#### Framework Definition
-```json
-{
-  "reportName": "AWS ISO 27001:2013",
-  "reportType": "COMPLIANCE",
-  "sections": [
-    {
-      "policies": ["policy-id-1", "policy-id-2"]
-    }
-  ]
-}
-```
 
 #### Policy Details
 ```json
@@ -270,23 +245,25 @@ lacework-framework-mapping/
 }
 ```
 
-#### Compliance Report
+
+#### Alert Data
 ```json
 {
-  "data": [
-    {
-      "REC_ID": "lacework-global-34",
-      "STATUS": "NonCompliant",
-      "ASSESSED_RESOURCE_COUNT": 158,
-      "RESOURCE_COUNT": 158
-    }
-  ]
+  "alertId": "12345",
+  "policyId": "lacework-global-34",
+  "severity": "Critical",
+  "startTime": "2024-01-15T10:30:00Z",
+  "resource": "arn:aws:iam::123456789012:user/root",
+  "region": "us-east-1",
+  "account": "123456789012"
 }
 ```
 
 #### CSV Output Schema
+
+**Alert Reporting:**
 ```csv
-Policy Name,Policy ID,Severity,Status,Framework Name,Policy Type,Compliant Resources,Non-Compliant Resources,Accounts with Violations
+Policy ID,Policy Title,Description,Remediation Steps,Severity,Resource,Region,Account,Date/Time,Alert ID
 ```
 
 ---
@@ -296,30 +273,36 @@ Policy Name,Policy ID,Severity,Status,Framework Name,Policy Type,Compliant Resou
 ### 7.1 Primary User Journey
 
 1. **Setup:** User installs dependencies and configures API credentials
-2. **Execution:** User runs script with framework name and API key file
-3. **Processing:** Script automatically retrieves and processes all data
-4. **Output:** User receives comprehensive CSV report for analysis
-5. **Analysis:** User imports CSV into analysis tools for security insights
+2. **Execution:** User runs script with API key file and optional date range
+3. **Processing:** Script automatically retrieves alerts and enriches with policy details
+4. **Output:** User receives comprehensive CSV report with alert analysis
+5. **Analysis:** User imports CSV into analysis tools for incident response and remediation
 
 ### 7.2 Command-Line Interface
 
 #### Basic Usage
 ```bash
-python script/compliance_framework_mapping.py -r "FRAMEWORK_NAME" -k "API_KEY_FILE"
+python script/lacework_alert_reporting.py -k "API_KEY_FILE" [OPTIONS]
 ```
 
 #### Help Documentation
 ```bash
-python script/compliance_framework_mapping.py --help
+python script/lacework_alert_reporting.py --help
 ```
 
 #### Example Commands
 ```bash
-# AWS ISO 27001:2013 framework
-python script/compliance_framework_mapping.py -r "AWS ISO 27001:2013" -k api-key/my-api-key.json
+# Use default (previous week Mon-Sun)
+python script/lacework_alert_reporting.py -k api-key/my-api-key.json
 
-# Custom framework
-python script/compliance_framework_mapping.py -r "My Custom Framework" -k api-key/custom-key.json
+# Specify custom date range
+python script/lacework_alert_reporting.py -k api-key/my-api-key.json --start-date 2024-01-01 --end-date 2024-01-07
+
+# Use current week Mon-Sun
+python script/lacework_alert_reporting.py -k api-key/my-api-key.json --current-week
+
+# Clear cache and use custom output file
+python script/lacework_alert_reporting.py -k api-key/my-api-key.json --clear-cache --output-file my_alerts.csv
 ```
 
 ### 7.3 Output Format
@@ -331,9 +314,11 @@ python script/compliance_framework_mapping.py -r "My Custom Framework" -k api-ke
 - **Compatible format** for Excel, Google Sheets, and analysis tools
 
 #### Sample Output Structure
+
+**Alert Reporting:**
 ```csv
-"Policy Name","Policy ID","Severity","Status","Framework Name","Policy Type","Compliant Resources","Non-Compliant Resources","Accounts with Violations"
-"Ensure no 'root' user account access key exists","lacework-global-34","Critical","Enabled","AWS ISO 27001:2013","Compliance",158,0,0
+"Policy ID","Policy Title","Description","Remediation Steps","Severity","Resource","Region","Account","Date/Time","Alert ID"
+"lacework-global-34","Ensure no 'root' user account access key exists","Policy description...","Remediation steps...","Critical","arn:aws:iam::123456789012:user/root","us-east-1","123456789012","2024-01-15T10:30:00Z","12345"
 ```
 
 ---
@@ -365,34 +350,33 @@ python script/compliance_framework_mapping.py -r "My Custom Framework" -k api-ke
 
 ### 9.1 Completed Features ✅
 
-#### Core Functionality
-- ✅ Framework definition retrieval with caching
-- ✅ Policy details extraction with rate limiting
-- ✅ AWS account discovery (enabled accounts only)
-- ✅ Compliance data retrieval via CLI integration
-- ✅ Data aggregation and analysis
-- ✅ CSV report generation with professional formatting
+#### Alert Reporting
+- ✅ Date range configuration with flexible options
+- ✅ Compliance alert retrieval via API and CLI
+- ✅ Alert data enrichment with policy details
+- ✅ Policy details caching and reuse
+- ✅ CSV report generation with alert information
+- ✅ Comprehensive error handling and retry logic
 
 #### Advanced Features
 - ✅ Command-line argument parsing with help documentation
-- ✅ Dynamic filename generation from framework names
-- ✅ Multi-level sorting (Policy Type → Status → Severity → Policy ID)
+- ✅ Dynamic filename generation based on date ranges
+- ✅ Multi-level sorting (Severity → Date/Time)
 - ✅ Intelligent caching for performance optimization
 - ✅ Rate limiting with exponential backoff and Retry-After support
 - ✅ Comprehensive error handling and user feedback
 - ✅ Consistent CSV quoting for compatibility
-- ✅ Manual policy type filtering
 
 #### Quality Assurance
-- ✅ Tested with multiple frameworks (AWS ISO 27001:2013)
-- ✅ Validated with 150+ AWS accounts
-- ✅ Confirmed accurate compliance statistics
+- ✅ Tested with various date ranges and alert types
+- ✅ Validated with multiple Lacework accounts
+- ✅ Confirmed accurate alert data retrieval and enrichment
 - ✅ Verified professional CSV output formatting
 
 ### 9.2 Architecture Decisions
 
 #### Technical Choices
-- **CLI Integration:** Used Lacework CLI for custom framework compliance reports due to SDK limitations
+- **Dual API Approach:** Used both Lacework SDK and CLI for comprehensive alert retrieval
 - **File-based Caching:** Implemented local JSON caching for optimal performance
 - **Single Script Design:** Consolidated all functionality into one executable for simplicity
 - **Argument-based Configuration:** Command-line arguments for maximum flexibility
@@ -445,21 +429,22 @@ python script/compliance_framework_mapping.py -r "My Custom Framework" -k api-ke
 
 ## 11. Conclusion
 
-The Lacework Framework Compliance Mapping Tool successfully addresses the critical need for automated compliance reporting in complex multi-account AWS environments. The solution provides:
+The Lacework Alert Reporting Tool successfully addresses the critical need for automated compliance analysis and alert reporting in complex multi-account cloud environments. The solution provides:
 
 ### Key Achievements
-- **Complete Automation:** End-to-end workflow from data extraction to report generation
+- **Complete Automation:** End-to-end workflow from alert retrieval to report generation
 - **Production Reliability:** Robust error handling, rate limiting, and caching
-- **Framework Flexibility:** Works with any custom Lacework framework
+- **Alert Intelligence:** Comprehensive alert analysis with policy enrichment
 - **Professional Output:** High-quality CSV reports suitable for executive presentation
 - **Operational Efficiency:** Reduces manual effort from hours to minutes
 
 ### Business Value
-- **Time Savings:** Automates previously manual compliance reporting processes
-- **Improved Accuracy:** Eliminates human error in data collection and aggregation
-- **Enhanced Visibility:** Provides comprehensive view of organizational security posture
-- **Audit Readiness:** Generates professional reports suitable for compliance audits
-- **Scalable Solution:** Supports growth from dozens to hundreds of AWS accounts
+- **Time Savings:** Automates previously manual alert analysis processes
+- **Improved Accuracy:** Eliminates human error in alert data collection and aggregation
+- **Enhanced Visibility:** Provides comprehensive view of security alert patterns and trends
+- **Alert Intelligence:** Delivers actionable alert information with remediation guidance
+- **Incident Response:** Accelerates security incident response with detailed context
+- **Scalable Solution:** Supports organizations of any size with efficient processing
 
 ### Technical Excellence
 - **Clean Architecture:** Well-structured, maintainable code with clear separation of concerns
@@ -467,4 +452,4 @@ The Lacework Framework Compliance Mapping Tool successfully addresses the critic
 - **User-Friendly:** Simple command-line interface with comprehensive documentation
 - **Future-Proof:** Extensible design supports additional frameworks and enhancements
 
-The tool represents a significant advancement in automated security compliance reporting, providing organizations with the insights needed to maintain strong cloud security postures across their entire AWS infrastructure.
+The tool represents a significant advancement in automated security alert reporting, providing organizations with the insights needed to maintain strong security postures and accelerate incident response across their entire infrastructure.
