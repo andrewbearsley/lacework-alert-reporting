@@ -427,7 +427,7 @@ def save_alert_to_cache(cache_dir: Path, alert_id: str, alert_data: Dict):
         print(f"Warning: Failed to cache alert {alert_id}: {e}")
 
 
-def get_detailed_alert_info(alert_id: str, cache_dir: Path) -> Dict:
+def get_detailed_alert_info(alert_id: str, cache_dir: Path, credentials: Dict) -> Dict:
     """Get detailed alert information using Lacework CLI with caching."""
     # First, try to load from cache
     cached_alert = load_alert_from_cache(cache_dir, alert_id)
@@ -437,11 +437,19 @@ def get_detailed_alert_info(alert_id: str, cache_dir: Path) -> Dict:
     # If not in cache, retrieve from CLI
     try:
         import subprocess
+        
+        # Set up environment variables for Lacework CLI authentication
+        env = os.environ.copy()
+        env['LW_ACCOUNT'] = credentials.get('account', '')
+        env['LW_API_KEY'] = credentials.get('keyId', '')
+        env['LW_API_SECRET'] = credentials.get('secret', '')
+        
         result = subprocess.run(
             ['lacework', 'alert', 'show', str(alert_id), '--json'],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            env=env
         )
         if result.returncode == 0:
             import json
@@ -457,7 +465,7 @@ def get_detailed_alert_info(alert_id: str, cache_dir: Path) -> Dict:
         return {}
 
 
-def get_report_definition(report_name: str, cache_dir: Path) -> Optional[Dict]:
+def get_report_definition(report_name: str, cache_dir: Path, credentials: Dict) -> Optional[Dict]:
     """Get compliance report definition from cache or CLI with 24-hour expiration."""
     report_definitions_dir = cache_dir / "report-definitions"
     report_definitions_dir.mkdir(parents=True, exist_ok=True)
@@ -479,12 +487,19 @@ def get_report_definition(report_name: str, cache_dir: Path) -> Optional[Dict]:
     # Get from CLI using the correct command format
     print(f"Retrieving report definition: {report_name}")
     try:
+        # Set up environment variables for Lacework CLI authentication
+        env = os.environ.copy()
+        env['LW_ACCOUNT'] = credentials.get('account', '')
+        env['LW_API_KEY'] = credentials.get('keyId', '')
+        env['LW_API_SECRET'] = credentials.get('secret', '')
+        
         # First, list all report definitions to find the GUID by name
         list_result = subprocess.run(
             ['lacework', 'report-definitions', 'list', '--json'],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            env=env
         )
         
         if list_result.returncode != 0 or not list_result.stdout.strip():
@@ -510,7 +525,8 @@ def get_report_definition(report_name: str, cache_dir: Path) -> Optional[Dict]:
             ['lacework', 'report-definitions', 'show', report_guid, '--json'],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            env=env
         )
         
         if result.returncode == 0 and result.stdout.strip():
@@ -566,12 +582,12 @@ def extract_policy_ids_from_report(report_data: Dict) -> Set[str]:
     return policy_ids
 
 
-def filter_alerts_by_report(alerts: List[Dict], report_name: str, cache_dir: Path) -> List[Dict]:
+def filter_alerts_by_report(alerts: List[Dict], report_name: str, cache_dir: Path, credentials: Dict) -> List[Dict]:
     """Filter alerts to only include those from policies in the specified report."""
     print(f"Filtering alerts by report: {report_name}")
     
     # Get report definition
-    report_data = get_report_definition(report_name, cache_dir)
+    report_data = get_report_definition(report_name, cache_dir, credentials)
     if not report_data:
         print(f"Warning: Could not retrieve report definition for '{report_name}'. Returning all alerts.")
         return alerts
@@ -595,7 +611,7 @@ def filter_alerts_by_report(alerts: List[Dict], report_name: str, cache_dir: Pat
     return filtered_alerts
 
 
-def extract_alert_details(alert: Dict, cache_dir: Path) -> Dict:
+def extract_alert_details(alert: Dict, cache_dir: Path, credentials: Dict) -> Dict:
     """Extract relevant details from an alert."""
     # Extract basic alert information
     alert_id = alert.get('alertId', 'Unknown')
@@ -612,7 +628,7 @@ def extract_alert_details(alert: Dict, cache_dir: Path) -> Dict:
         policy_id = alert['data']['REC_ID']
     
     # Get detailed alert information using CLI with caching
-    detailed_alert = get_detailed_alert_info(alert_id, cache_dir)
+    detailed_alert = get_detailed_alert_info(alert_id, cache_dir, credentials)
     
     # Extract resource information from detailed alert
     resources = []
@@ -891,7 +907,7 @@ def main():
     
     # Apply report filtering if specified
     if args.report:
-        alerts = filter_alerts_by_report(alerts, args.report, cache_dir)
+        alerts = filter_alerts_by_report(alerts, args.report, cache_dir, credentials)
         if not alerts:
             print(f"No alerts found matching report '{args.report}'.")
             sys.exit(0)
@@ -906,7 +922,7 @@ def main():
     print(f"Found {cached_alert_count} alerts already cached, {len(alerts) - cached_alert_count} to retrieve from CLI")
     
     for alert in alerts:
-        details = extract_alert_details(alert, alert_cache_dir)
+        details = extract_alert_details(alert, alert_cache_dir, credentials)
         alert_details.append(details)
         if details['policy_id'] != 'Unknown':
             unique_policy_ids.add(details['policy_id'])
