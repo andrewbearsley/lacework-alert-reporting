@@ -5,34 +5,33 @@
 
 ## 1. Executive Summary
 
-The Lacework Alert Reporting Tool is a Python-based automation solution that generates comprehensive reports of Lacework compliance alerts with policy details and remediation information. The tool provides automated alert analysis in well-formatted CSV reports, enabling security teams to efficiently monitor and respond to compliance violations.
+The Lacework Alert Reporting Tool is a Python script that retrieves Lacework compliance alerts and generates CSV reports with policy details and remediation information.
 
-### Key Value Proposition
-- **Detailed alert analysis** with policy enrichment and remediation details
-- **Flexible date range reporting** with configurable time periods
-- **Automated data aggregation** with intelligent caching
-- **Production-ready reliability** with rate limiting and error handling
-- **Formattede rporting** suitable for executive presentation and incident response
+### Key Features
+- Retrieves compliance alerts with policy details and remediation steps
+- Configurable date ranges for alert reporting
+- Caches data to avoid redundant API calls
+- Handles rate limiting and errors
+- Generates CSV reports for analysis
 
 ---
 
 ## 2. Problem Statement
 
 ### Current Challenges
-1. **Manual alert analysis** - Security teams need to manually analyze compliance alerts and correlate them with policy details
-2. **Time-intensive analysis** - Manual data collection and aggregation takes significant time and effort
-3. **Inconsistent reporting** - No standardized format for alert reporting across teams
-4. **Alert context missing** - Alerts lack detailed policy information and remediation steps
-5. **Delayed incident response** - Manual processes slow down security incident response
-6. **Resource waste** - Repetitive manual tasks consume valuable security team time
+1. Manual analysis of compliance alerts and policy correlation
+2. Time-consuming data collection and aggregation
+3. No standardized alert reporting format
+4. Missing policy details and remediation steps in alerts
+5. Slow incident response due to manual processes
 
 ### Business Impact
-- **Inefficient security operations** due to manual processes
-- **Delayed incident response** due to lack of alert context and remediation guidance
-- **Incomplete visibility** into security alert patterns and trends
-- **Resource waste** on repetitive manual tasks
-- **Inconsistent alert prioritization** without standardized reporting
-- **Reduced security team productivity** due to manual alert analysis
+- Inefficient security operations due to manual processes
+- Delayed incident response due to lack of alert context
+- Limited visibility into security alert patterns
+- Resource waste on repetitive manual tasks
+- Inconsistent alert prioritization without standardized reporting
+- Reduced security team productivity due to manual alert analysis
 
 ---
 

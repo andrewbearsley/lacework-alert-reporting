@@ -1,11 +1,11 @@
 # Lacework Alert Reporting Tool
 
-This repository provides automated alert reporting for Lacework compliance alerts using the Lacework CLI and Python SDK. It generates a report of compliance alerts with policy details and remediation information.
+This tool retrieves Lacework compliance alerts and generates CSV reports with policy details and remediation information.
 
 **Features:**
 - Configurable date ranges (defaults to previous week Mon-Sun)
 - Retrieves compliance alerts using Lacework API and CLI
-- Enriches alerts with policy details using intelligent caching
+- Enriches alerts with policy details using caching
 - Generates CSV reports with alert information
 - Handles rate limiting and retry logic
 
@@ -171,10 +171,10 @@ Generates a CSV report:
 - **Compliance report filtering:** Filter alerts by specific compliance frameworks (e.g., AWS FSBP, PCI DSS, custom reports)
 - **Detailed Alert data:** Retrieves all compliance alerts for the specified time period
 - **Policy enrichment:** Automatically enriches alerts with policy details and remediation steps
-- **Intelligent caching:** Caches policy details and report definitions to avoid redundant API calls
+- **Caching:** Caches policy details and report definitions to avoid redundant API calls
 - **Rate limiting:** Handles API rate limits with exponential backoff and retry logic
 - **Enhanced resource information:** AWS resources include account ID and alias for better context
-- **Smart filename generation:** Report names automatically included in output filenames
+- **Filename generation:** Report names automatically included in output filenames
 - **Formatted output:** Generates well-formatted CSV reports suitable for analysis
 
 ## References
