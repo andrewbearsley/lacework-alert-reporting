@@ -19,9 +19,7 @@ Output CSV fields:
 - Remediation Steps
 - Severity
 - Resource (URI/workload identifier)
-- Region
-- Account
-- Date/Time
+- Alert Status
 """
 
 import argparse
@@ -700,13 +698,11 @@ def write_alert_csv(alerts_data: List[Dict], output_file: Path, start_date: str,
     fieldnames = [
         'Policy ID',
         'Policy Title',
-        'Severity',
-        'Source',
         'Description',
         'Remediation Steps',
+        'Severity',
         'Resource',
-        'Date/Time',
-        'Alert ID'
+        'Alert Status'
     ]
     
     # Define severity order for sorting
@@ -733,13 +729,11 @@ def write_alert_csv(alerts_data: List[Dict], output_file: Path, start_date: str,
                 writer.writerow({
                     'Policy ID': alert['policy_id'],
                     'Policy Title': alert['policy_name'],
-                    'Severity': alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown',
-                    'Source': alert['source'],
                     'Description': alert['description'],
                     'Remediation Steps': alert['remediation'],
+                    'Severity': alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown',
                     'Resource': alert['resource'],
-                    'Date/Time': alert['start_time'],
-                    'Alert ID': alert['alert_id']
+                    'Alert Status': alert['alert_status']
                 })
         
         print(f"Successfully wrote {len(alerts_data)} alerts to {output_file}")
@@ -947,7 +941,8 @@ def main():
             'resource': alert['resource'],
             'region': alert['region'],
             'account': alert['account'],
-            'start_time': alert['start_time']
+            'start_time': alert['start_time'],
+            'alert_status': alert['raw_alert'].get('status', 'Unknown')
         }
         enriched_alerts.append(enriched_alert)
     
