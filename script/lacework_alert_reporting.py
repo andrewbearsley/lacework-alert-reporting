@@ -19,6 +19,8 @@ Output CSV fields:
 - Remediation Steps
 - Severity
 - Resource (URI/workload identifier)
+- Region (extracted from each URI)
+- Account (AWS account ID and alias)
 - Alert Status
 """
 
@@ -614,8 +616,8 @@ def extract_alert_details(alert: Dict, cache_dir: Path) -> Dict:
     
     # Extract resource information from detailed alert
     resources = []
-    region = 'Unknown'
-    account = 'Unknown'
+    regions = []
+    accounts = []
     
     if 'entityMap' in detailed_alert and 'Resource' in detailed_alert['entityMap']:
         resource_list = detailed_alert['entityMap']['Resource']
@@ -632,15 +634,16 @@ def extract_alert_details(alert: Dict, cache_dir: Path) -> Dict:
                             account_alias = key_data.get('account_alias', '')
                             if account_alias:
                                 resource_arn += f" (Account: {account_id}, Alias: {account_alias})"
+                                accounts.append(f"{account_id} ({account_alias})")
                             elif account_id:
                                 resource_arn += f" (Account: {account_id})"
+                                accounts.append(account_id)
                         resources.append(resource_arn)
                     
-                    # Use the first resource for region and account (they should be consistent)
-                    if region == 'Unknown':
-                        region = key_data.get('resource_region', 'Unknown')
-                    if account == 'Unknown':
-                        account = key_data.get('account_id', 'Unknown')
+                    # Extract region for each resource
+                    resource_region = key_data.get('resource_region', 'Unknown')
+                    if resource_region != 'Unknown':
+                        regions.append(resource_region)
     
     # Fallback to data array if entityMap extraction failed
     elif 'data' in detailed_alert and isinstance(detailed_alert['data'], list) and len(detailed_alert['data']) > 0:
@@ -655,26 +658,29 @@ def extract_alert_details(alert: Dict, cache_dir: Path) -> Dict:
                         account_alias = key_data.get('account_alias', '')
                         if account_alias:
                             resource_arn += f" (Account: {account_id}, Alias: {account_alias})"
+                            accounts.append(f"{account_id} ({account_alias})")
                         elif account_id:
                             resource_arn += f" (Account: {account_id})"
+                            accounts.append(account_id)
                     resources.append(resource_arn)
                 
-                # Use the first resource for region and account
-                if region == 'Unknown':
-                    region = key_data.get('resource_region', 'Unknown')
-                if account == 'Unknown':
-                    account = key_data.get('account_id', 'Unknown')
+                # Extract region for each resource
+                resource_region = key_data.get('resource_region', 'Unknown')
+                if resource_region != 'Unknown':
+                    regions.append(resource_region)
     
     # Fallback to top-level fields if both extractions failed
     if not resources and 'resource' in detailed_alert:
         resources = [detailed_alert['resource']]
-    if region == 'Unknown' and 'region' in detailed_alert:
-        region = detailed_alert['region']
-    if account == 'Unknown' and 'account' in detailed_alert:
-        account = detailed_alert['account']
+    if not regions and 'region' in detailed_alert:
+        regions = [detailed_alert['region']]
+    if not accounts and 'account' in detailed_alert:
+        accounts = [detailed_alert['account']]
     
     # Join all resources with line break separator, or use 'Unknown' if none found
     resource = '\n'.join(resources) if resources else 'Unknown'
+    region = '\n'.join(regions) if regions else 'Unknown'
+    account = '\n'.join(accounts) if accounts else 'Unknown'
     
     # Extract source information from original alert
     derived_fields = alert.get('derivedFields', {})
@@ -702,6 +708,8 @@ def write_alert_csv(alerts_data: List[Dict], output_file: Path, start_date: str,
         'Remediation Steps',
         'Severity',
         'Resource',
+        'Region',
+        'Account',
         'Alert Status'
     ]
     
@@ -733,6 +741,8 @@ def write_alert_csv(alerts_data: List[Dict], output_file: Path, start_date: str,
                     'Remediation Steps': alert['remediation'],
                     'Severity': alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown',
                     'Resource': alert['resource'],
+                    'Region': alert['region'],
+                    'Account': alert['account'],
                     'Alert Status': alert['alert_status']
                 })
         
