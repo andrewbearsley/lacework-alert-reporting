@@ -8,11 +8,11 @@
 The Lacework Alert Reporting Tool is a Python-based automation solution that generates comprehensive reports of Lacework compliance alerts with policy details and remediation information. The tool provides automated alert analysis in well-formatted CSV reports, enabling security teams to efficiently monitor and respond to compliance violations.
 
 ### Key Value Proposition
-- **Comprehensive alert analysis** with policy enrichment and remediation details
+- **Detailed alert analysis** with policy enrichment and remediation details
 - **Flexible date range reporting** with configurable time periods
 - **Automated data aggregation** with intelligent caching
 - **Production-ready reliability** with rate limiting and error handling
-- **Professional reporting** suitable for executive presentation and incident response
+- **Formattede rporting** suitable for executive presentation and incident response
 
 ---
 

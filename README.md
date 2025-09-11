@@ -72,12 +72,18 @@ Verify installation:
 python3 --version
 ```
 
-### Install Lacework Python SDK
+### Install Python Dependencies
+
+Install all required Python packages:
+```bash
+pip3 install -r requirements.txt
+```
+
+This includes:
+- **Lacework Python SDK:** For Lacework API integration
+- **Tabulate:** For formatted CLI table output
 
 Docs: https://lacework.github.io/python-sdk
-```bash
-pip3 install laceworksdk
-```
 
 ## Usage
 
