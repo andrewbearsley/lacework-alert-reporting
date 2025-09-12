@@ -3,16 +3,16 @@
 Lacework Alert Reporting Script
 
 This script retrieves compliance alerts from Lacework for a specified date range
-and generates a comprehensive CSV report with policy details and alert information.
+and generates a comprehensive Excel report with policy details and alert information.
 
 Features:
 1. Configurable date range (defaults to previous week Mon-Sun)
 2. Retrieves compliance alerts using Lacework API
 3. Uses caching for policy details to avoid redundant API calls
 4. Handles rate limiting with retry logic
-5. Generates CSV output with comprehensive alert information
+5. Generates Excel output with comprehensive alert information and professional formatting
 
-Output CSV fields:
+Output Excel fields:
 - Policy ID
 - Policy Title
 - Description
@@ -22,10 +22,10 @@ Output CSV fields:
 - Region (extracted from each URI)
 - Account (AWS account ID and alias)
 - Alert Status
+- Alert ID (clickable hyperlink to Lacework Alert Inbox)
 """
 
 import argparse
-import csv
 import json
 import os
 import re
@@ -39,6 +39,10 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import laceworksdk
 from tabulate import tabulate
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 try:
     from laceworksdk import LaceworkClient
@@ -50,11 +54,12 @@ except ImportError:
 def parse_arguments():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Generate Lacework compliance alert reports',
+        description='Generate Lacework compliance alert reports in Excel format',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   # Use default (previous week Mon-Sun)
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json
+  
   
   # Specify custom date range
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json --start-date 2024-01-01 --end-date 2024-01-07
@@ -97,13 +102,14 @@ def parse_arguments():
     
     parser.add_argument(
         '--output-file',
-        help='Custom output filename (default: auto-generated based on date range)'
+        help='Custom Excel output filename (default: auto-generated based on date range)'
     )
     
     parser.add_argument(
         '-r', '--report',
         help='Filter alerts to only include policies from the specified compliance report (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")'
     )
+    
     
     return parser.parse_args()
 
@@ -693,8 +699,17 @@ def extract_alert_details(alert: Dict, cache_dir: Path, credentials: Dict) -> Di
     if not accounts and 'account' in detailed_alert:
         accounts = [detailed_alert['account']]
     
-    # Join all resources with line break separator, or use 'Unknown' if none found
-    resource = '\n'.join(resources) if resources else 'Unknown'
+    # Format resources as a single coherent text block (like remediation steps)
+    if resources:
+        if len(resources) == 1:
+            resource = resources[0]
+        else:
+            # Format as a numbered list to make it look like natural text
+            resource = '\n'.join(f"{i+1}. {res}" for i, res in enumerate(resources))
+    else:
+        resource = 'Unknown'
+    
+    # Keep regions and accounts as simple joins for now
     region = '\n'.join(regions) if regions else 'Unknown'
     account = '\n'.join(accounts) if accounts else 'Unknown'
     
@@ -715,8 +730,8 @@ def extract_alert_details(alert: Dict, cache_dir: Path, credentials: Dict) -> Di
     }
 
 
-def write_alert_csv(alerts_data: List[Dict], output_file: Path, start_date: str, end_date: str):
-    """Write alert details to CSV file."""
+def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: str, end_date: str, account: str):
+    """Write alert details to Excel file with proper formatting."""
     fieldnames = [
         'Policy ID',
         'Policy Title',
@@ -726,7 +741,8 @@ def write_alert_csv(alerts_data: List[Dict], output_file: Path, start_date: str,
         'Resource',
         'Region',
         'Account',
-        'Alert Status'
+        'Alert Status',
+        'Alert ID'
     ]
     
     # Define severity order for sorting
@@ -745,27 +761,133 @@ def write_alert_csv(alerts_data: List[Dict], output_file: Path, start_date: str,
     sorted_alerts = sorted(alerts_data, key=sort_key)
     
     try:
-        with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, quoting=csv.QUOTE_NONNUMERIC)
-            writer.writeheader()
-            
-            for alert in sorted_alerts:
-                writer.writerow({
-                    'Policy ID': alert['policy_id'],
-                    'Policy Title': alert['policy_name'],
-                    'Description': alert['description'],
-                    'Remediation Steps': alert['remediation'],
-                    'Severity': alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown',
-                    'Resource': alert['resource'],
-                    'Region': alert['region'],
-                    'Account': alert['account'],
-                    'Alert Status': alert['alert_status']
-                })
+        # Create workbook and worksheet
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Lacework Alerts"
         
+        # Define styles
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        
+        # No severity colors - keep it clean and professional
+        
+        # Border style
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Write header row
+        for col, field in enumerate(fieldnames, 1):
+            cell = ws.cell(row=1, column=col, value=field)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        
+        # Write data rows
+        for row, alert in enumerate(sorted_alerts, 2):
+            # Clean fields to ensure they're strings and handle None values
+            def clean_field(field_value):
+                if field_value is None:
+                    return 'N/A'
+                return str(field_value) if field_value else 'N/A'
+            
+            # Prepare row data with cleaned fields
+            alert_id = clean_field(alert['alert_id'])
+            alert_url = f"https://{account}/ui/investigation/monitor/AlertInbox/{alert_id}"
+            
+            row_data = {
+                'Policy ID': clean_field(alert['policy_id']),
+                'Policy Title': clean_field(alert['policy_name']),
+                'Description': clean_field(alert['description']),
+                'Remediation Steps': clean_field(alert['remediation']),
+                'Severity': alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown',
+                'Resource': clean_field(alert['resource']),
+                'Region': clean_field(alert['region']),
+                'Account': clean_field(alert['account']),
+                'Alert Status': clean_field(alert['alert_status']),
+                'Alert ID': alert_id
+            }
+            
+            # Write each field to the row
+            for col, field in enumerate(fieldnames, 1):
+                cell = ws.cell(row=row, column=col, value=row_data[field])
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                
+                # Add hyperlink for Alert ID field
+                if field == 'Alert ID':
+                    cell.hyperlink = Hyperlink(ref=alert_url, target=alert_url)
+                    cell.font = Font(color="0000FF", underline="single")
+        
+        # Auto-adjust column widths
+        for col in range(1, len(fieldnames) + 1):
+            column_letter = get_column_letter(col)
+            
+            # Calculate max width based on content
+            max_length = 0
+            for row in range(1, len(sorted_alerts) + 2):
+                cell_value = ws.cell(row=row, column=col).value
+                if cell_value:
+                    # Count characters, but limit very long lines
+                    line_lengths = [len(line) for line in str(cell_value).split('\n')]
+                    max_length = max(max_length, max(line_lengths))
+            
+            # Set column width with reasonable limits
+            adjusted_width = min(max(max_length + 2, 15), 80)
+            ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Set row heights for better readability
+        for row in range(2, len(sorted_alerts) + 2):
+            ws.row_dimensions[row].height = 60  # Allow for wrapped text
+        
+        # Add a summary sheet
+        summary_ws = wb.create_sheet("Summary")
+        
+        # Add summary information
+        summary_data = [
+            ["Lacework Alert Report Summary", ""],
+            ["Date Range", f"{start_date} to {end_date}"],
+            ["Total Alerts", len(alerts_data)],
+            ["Report Generated", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+            ["", ""],
+            ["Severity Distribution", ""]
+        ]
+        
+        # Calculate severity distribution
+        severity_counts = {}
+        for alert in sorted_alerts:
+            severity = alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown'
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+        
+        for severity, count in sorted(severity_counts.items()):
+            summary_data.append([severity, count])
+        
+        # Write summary data
+        for row, (label, value) in enumerate(summary_data, 1):
+            summary_ws.cell(row=row, column=1, value=label)
+            summary_ws.cell(row=row, column=2, value=value)
+            
+            if label == "Lacework Alert Report Summary":
+                summary_ws.cell(row=row, column=1).font = Font(bold=True, size=14)
+            elif label in ["Date Range", "Total Alerts", "Report Generated"]:
+                summary_ws.cell(row=row, column=1).font = Font(bold=True)
+        
+        # Auto-adjust summary column widths
+        summary_ws.column_dimensions['A'].width = 25
+        summary_ws.column_dimensions['B'].width = 20
+        
+        # Save the workbook
+        wb.save(output_file)
         print(f"Successfully wrote {len(alerts_data)} alerts to {output_file}")
         
     except Exception as e:
-        print(f"Error writing CSV file: {e}")
+        print(f"Error writing Excel file: {e}")
         sys.exit(1)
 
 
@@ -991,11 +1113,12 @@ def main():
             safe_report_name = re.sub(r'-+', '-', safe_report_name).strip('-')
             base_filename += f"_{safe_report_name}"
         
-        output_file = output_dir / f"{base_filename}.csv"
+        # Output to Excel format
+        output_file = output_dir / f"{base_filename}.xlsx"
     
-    # Write CSV output
-    print("Step 7: Writing CSV output...")
-    write_alert_csv(enriched_alerts, output_file, start_date, end_date)
+    # Write output
+    print("Step 7: Writing Excel output...")
+    write_alert_excel(enriched_alerts, output_file, start_date, end_date, credentials['account'])
     
     # Final summary
     print("\n=== Final Summary ===")

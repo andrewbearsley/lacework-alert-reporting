@@ -1,13 +1,14 @@
 # Lacework Alert Reporting Tool
 
-This tool retrieves Lacework compliance alerts and generates CSV reports with policy details and remediation information.
+This tool retrieves Lacework compliance alerts and generates Excel reports with policy details and remediation information.
 
 **Features:**
 - Configurable date ranges (defaults to previous week Mon-Sun)
 - Retrieves compliance alerts using Lacework API and CLI
 - Enriches alerts with policy details using caching
-- Generates CSV reports with alert information
+- Generates Excel reports with alert information and professional formatting
 - Handles rate limiting and retry logic
+- Perfect line break handling for multi-line content
 
 ## Prerequisites
 
@@ -82,6 +83,7 @@ pip3 install -r requirements.txt
 This includes:
 - **Lacework Python SDK:** For Lacework API integration
 - **Tabulate:** For formatted CLI table output
+- **OpenPyXL:** For Excel file generation with professional formatting
 
 Docs: https://lacework.github.io/python-sdk
 
@@ -98,7 +100,7 @@ python3 script/lacework_alert_reporting.py -k "API_KEY_FILE" [OPTIONS]
 - `--current-week`: Use current week (Monday to Sunday) instead of previous week
 - `-r, --report`: Filter alerts to only include policies from the specified compliance report (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")
 - `--clear-cache`: Clear all cached data before running (forces fresh API calls)
-- `--output-file`: Custom output filename (default: auto-generated based on date range)
+- `--output-file`: Custom Excel output filename (default: auto-generated based on date range)
 
 ### Examples
 
@@ -119,7 +121,7 @@ python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --curre
 python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --current-week -r "AWS PCI DSS 4.0.0"
 
 # Clear cache and use custom output file
-python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --clear-cache --output-file my_alerts.csv
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --clear-cache --output-file my_alerts.xlsx
 
 # Show help
 python3 script/lacework_alert_reporting.py --help
@@ -140,21 +142,27 @@ Common compliance reports include:
 - **AWS NIST 800-53 rev5**
 - **Azure CIS Benchmark**
 - **GCP CIS Benchmark**
-- **Custom reports** (e.g., "UNSW AWS Cyber Security Standards")
+- **Custom reports**
 
 ## Output
 
-Generates a CSV report:
+Generates an Excel report with professional formatting:
 - **File:** 
-  - Default: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD.csv`
-  - With report: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD_REPORT-NAME.csv`
-  - Custom: `output/CUSTOM_FILENAME.csv` (when using `--output-file`)
+  - Default: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD.xlsx`
+  - With report: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD_REPORT-NAME.xlsx`
+  - Custom: `output/CUSTOM_FILENAME.xlsx` (when using `--output-file`)
 - **Columns:**
-  - Policy ID, Policy Title, Description, Remediation Steps
-  - Severity, Resource, Region, Account, Date/Time, Alert ID
+  - Policy ID, Policy Title, Description, Remediation Steps, Severity
+  - Resource, Region, Account, Alert Status, Alert ID (clickable hyperlink to Lacework Alert Inbox)
 - **Sorting:** Severity → Date/Time
-- **Format:** CSV with proper quoting for multi-line text fields (Excel-compatible)
-- **Resource Enhancement:** AWS resources include account ID and alias information for better context
+- **Format:** Excel with professional formatting, text wrapping, and perfect line break handling
+- **Features:**
+  - Clean borders and headers
+  - Auto-sized columns based on content
+  - Text wrapping for long content
+  - Summary sheet with report metadata
+  - Clickable Alert ID hyperlinks to Lacework Alert Inbox
+  - Resource Enhancement: AWS resources include account ID and alias information for better context
 
 ## Architecture
 
@@ -175,7 +183,7 @@ Generates a CSV report:
 - **Rate limiting:** Handles API rate limits with exponential backoff and retry logic
 - **Enhanced resource information:** AWS resources include account ID and alias for better context
 - **Filename generation:** Report names automatically included in output filenames
-- **Formatted output:** Generates well-formatted CSV reports suitable for analysis
+- **Formatted output:** Generates well-formatted Excel reports with professional styling suitable for business presentations
 
 ## References
 
