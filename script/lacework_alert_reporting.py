@@ -1558,12 +1558,12 @@ def main():
                 policy_id = policy_data['policy_id']
                 policy_info = policy_details.get(policy_id, {})
                 
-                # Format resources as numbered list, sorted alphabetically
+                # Format resources as list, sorted alphabetically
                 sorted_resources = sorted(policy_data['resources'])
                 if len(sorted_resources) == 1:
                     resource = sorted_resources[0]
                 else:
-                    resource = '\n'.join(f"{i+1}. {res}" for i, res in enumerate(sorted_resources))
+                    resource = '\n'.join(sorted_resources)
                 
                 # Format regions
                 region = '\n'.join(sorted(policy_data['regions'])) if policy_data['regions'] else 'Unknown'
