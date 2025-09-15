@@ -5,8 +5,10 @@ This tool retrieves Lacework compliance alerts and generates Excel reports with 
 **Features:**
 - Configurable date ranges (defaults to previous week Mon-Sun)
 - Retrieves compliance alerts using Lacework API and CLI
+- Retrieves compliance status (non-compliant resources) from compliance reports
 - Enriches alerts with policy details using caching
-- Generates Excel reports with alert information and professional formatting
+- Generates Excel reports with both Alerts and Compliance Status tabs
+- Professional formatting with proper styling and text wrapping
 - Handles rate limiting and retry logic
 - Perfect line break handling for multi-line content
 
@@ -99,6 +101,8 @@ python3 script/lacework_alert_reporting.py -k "API_KEY_FILE" [OPTIONS]
 - `--end-date`: End date for alert retrieval (YYYY-MM-DD format)
 - `--current-week`: Use current week (Monday to Sunday) instead of previous week
 - `-r, --report`: Filter alerts to only include policies from the specified compliance report (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")
+- `--skip-compliance`: Skip Compliance Status tab (only generate Alerts tab)
+- `--compliance-report`: Specific compliance report name to use for compliance status (e.g., "AWS PCI DSS 4.0.0")
 - `--clear-cache`: Clear all cached data before running (forces fresh API calls)
 - `--output-file`: Custom Excel output filename (default: auto-generated based on date range)
 
@@ -119,6 +123,12 @@ python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --curre
 
 # Filter by PCI DSS compliance report
 python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --current-week -r "AWS PCI DSS 4.0.0"
+
+# Skip compliance status tab (alerts only)
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --skip-compliance
+
+# Use specific compliance report for compliance status
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --compliance-report "AWS PCI DSS 4.0.0"
 
 # Clear cache and use custom output file
 python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --clear-cache --output-file my_alerts.xlsx
@@ -151,18 +161,20 @@ Generates an Excel report with professional formatting:
   - Default: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD.xlsx`
   - With report: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD_REPORT-NAME.xlsx`
   - Custom: `output/CUSTOM_FILENAME.xlsx` (when using `--output-file`)
-- **Columns:**
-  - Policy ID, Policy Title, Description, Remediation Steps, Severity
-  - Resource, Region, Account, Alert Status, Alert ID (clickable hyperlink to Lacework Alert Inbox)
-- **Sorting:** Severity → Date/Time
+- **Worksheets:**
+  - **Alerts Tab:** Policy ID, Policy Title, Description, Remediation Steps, Severity, Resource, Region, Account, Alert Status, Alert ID (clickable hyperlink to Lacework Alert Inbox)
+  - **Compliance Status Tab:** Policy ID, Policy Title, Description, Remediation Steps, Severity, Resource, Region, Account (non-compliant resources only)
+  - **Summary Tab:** Report metadata and severity distributions for both alerts and compliance items
+- **Sorting:** Severity → Policy ID
 - **Format:** Excel with professional formatting, text wrapping, and perfect line break handling
 - **Features:**
   - Clean borders and headers
   - Auto-sized columns based on content
   - Text wrapping for long content
-  - Summary sheet with report metadata
+  - Summary sheet with comprehensive report metadata
   - Clickable Alert ID hyperlinks to Lacework Alert Inbox
   - Resource Enhancement: AWS resources include account ID and alias information for better context
+  - Compliance Status: Shows current non-compliant resources from compliance reports
 
 ## Architecture
 
@@ -178,10 +190,12 @@ Generates an Excel report with professional formatting:
 - **Configurable date ranges:** Previous week (default), current week, or custom date ranges
 - **Compliance report filtering:** Filter alerts by specific compliance frameworks (e.g., AWS FSBP, PCI DSS, custom reports)
 - **Detailed Alert data:** Retrieves all compliance alerts for the specified time period
+- **Compliance Status reporting:** Retrieves current non-compliant resources from compliance reports
 - **Policy enrichment:** Automatically enriches alerts with policy details and remediation steps
-- **Caching:** Caches policy details and report definitions to avoid redundant API calls
+- **Caching:** Caches policy details, report definitions, and compliance reports to avoid redundant API calls
 - **Rate limiting:** Handles API rate limits with exponential backoff and retry logic
 - **Enhanced resource information:** AWS resources include account ID and alias for better context
+- **Multi-worksheet output:** Separate tabs for Alerts, Compliance Status, and Summary
 - **Filename generation:** Report names automatically included in output filenames
 - **Formatted output:** Generates well-formatted Excel reports with professional styling suitable for business presentations
 

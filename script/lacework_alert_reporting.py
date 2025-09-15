@@ -60,7 +60,6 @@ def parse_arguments():
   # Use default (previous week Mon-Sun)
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json
   
-  
   # Specify custom date range
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json --start-date 2024-01-01 --end-date 2024-01-07
   
@@ -69,6 +68,12 @@ def parse_arguments():
   
   # Filter by compliance report
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json --current-week -r "AWS Foundational Security Best Practices (FSBP) Standard"
+  
+  # Skip compliance status tab (alerts only)
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --skip-compliance
+  
+  # Use specific compliance report for compliance status
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --compliance-report "AWS PCI DSS 4.0.0"
         """
     )
     
@@ -110,6 +115,16 @@ def parse_arguments():
         help='Filter alerts to only include policies from the specified compliance report (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")'
     )
     
+    parser.add_argument(
+        '--skip-compliance',
+        action='store_true',
+        help='Skip Compliance Status tab (only generate Alerts tab)'
+    )
+    
+    parser.add_argument(
+        '--compliance-report',
+        help='Specific compliance report name to use for compliance status (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")'
+    )
     
     return parser.parse_args()
 
@@ -617,6 +632,237 @@ def filter_alerts_by_report(alerts: List[Dict], report_name: str, cache_dir: Pat
     return filtered_alerts
 
 
+def get_aws_accounts(credentials: Dict) -> List[Dict]:
+    """Get list of configured AWS accounts from Lacework."""
+    print("Retrieving configured AWS accounts...")
+    
+    try:
+        # Set up environment variables for Lacework CLI authentication
+        env = os.environ.copy()
+        env['LW_ACCOUNT'] = credentials.get('account', '')
+        env['LW_API_KEY'] = credentials.get('keyId', '')
+        env['LW_API_SECRET'] = credentials.get('secret', '')
+        
+        cmd = [
+            "lacework", "compliance", "aws", "list-accounts", 
+            "--json",
+            "--api_key", credentials.get('keyId', ''),
+            "--api_secret", credentials.get('secret', ''),
+            "--account", credentials.get('account', '')
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+        
+        if result.returncode == 0:
+            accounts_data = json.loads(result.stdout)
+            
+            # Handle the actual response format from lacework compliance aws list-accounts
+            if 'aws_accounts' in accounts_data and isinstance(accounts_data['aws_accounts'], list):
+                accounts = []
+                for account in accounts_data['aws_accounts']:
+                    accounts.append({
+                        'account_id': account.get('account_id', ''),
+                        'account_alias': account.get('account_alias', ''),
+                        'status': account.get('status', ''),
+                        'integration_guid': account.get('integration_guid', '')
+                    })
+                
+                # Filter to only enabled accounts for compliance reporting
+                enabled_accounts = [acc for acc in accounts if acc['status'] == 'Enabled']
+                print(f"Found {len(accounts)} total AWS accounts ({len(enabled_accounts)} enabled)")
+                return enabled_accounts
+            else:
+                print(f"No AWS accounts found in response. Data structure: {accounts_data}")
+                return []
+        else:
+            print(f"CLI error retrieving AWS accounts: {result.stderr}")
+            return []
+    
+    except subprocess.TimeoutExpired:
+        print("CLI timeout retrieving AWS accounts")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error retrieving AWS accounts: {e}")
+        return []
+    except Exception as e:
+        print(f"Error retrieving AWS accounts: {e}")
+        return []
+
+
+def get_compliance_report(account_id: str, credentials: Dict, cache_dir: Path, report_name: str = None) -> List[Dict]:
+    """Get compliance report for a specific AWS account with non-compliant resources."""
+    
+    # Create cache directory for compliance reports
+    compliance_cache_dir = cache_dir / "compliance-reports"
+    compliance_cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create cache file path
+    cache_file = compliance_cache_dir / f"compliance_{account_id}.json"
+    
+    # Check if cache file exists and is less than 24 hours old
+    if cache_file.exists():
+        try:
+            file_age = time.time() - cache_file.stat().st_mtime
+            if file_age < 24 * 3600:  # 24 hours in seconds
+                print(f"Loading compliance report from cache (age: {file_age/3600:.1f} hours)")
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                print(f"Compliance report cache is {file_age/3600:.1f} hours old, refreshing...")
+        except Exception as e:
+            print(f"Warning: Failed to load cached compliance report: {e}")
+    
+    try:
+        # Set up environment variables for Lacework CLI authentication
+        env = os.environ.copy()
+        env['LW_ACCOUNT'] = credentials.get('account', '')
+        env['LW_API_KEY'] = credentials.get('keyId', '')
+        env['LW_API_SECRET'] = credentials.get('secret', '')
+        
+        # Build command to get compliance report
+        cmd = [
+            "lacework", "compliance", "aws", "get-report", account_id,
+            "--status", "non-compliant",
+            "--json",
+            "--api_key", credentials.get('keyId', ''),
+            "--api_secret", credentials.get('secret', ''),
+            "--account", credentials.get('account', '')
+        ]
+        
+        # Add report name filter if specified
+        if report_name:
+            cmd.extend(["--report-name", report_name])
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+        
+        if result.returncode == 0:
+            compliance_data = json.loads(result.stdout)
+            
+            # Cache the result
+            try:
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(compliance_data, f, indent=2)
+                print(f"Cached compliance report: {cache_file}")
+            except Exception as e:
+                print(f"Warning: Failed to cache compliance report: {e}")
+            
+            return compliance_data
+        else:
+            print(f"CLI error retrieving compliance report: {result.stderr}")
+            return []
+    
+    except subprocess.TimeoutExpired:
+        print("CLI timeout retrieving compliance report")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error retrieving compliance report: {e}")
+        return []
+    except Exception as e:
+        print(f"Error retrieving compliance report: {e}")
+        return []
+
+
+def parse_compliance_report_data(compliance_data: Dict, policy_details: Dict) -> List[Dict]:
+    """Parse compliance report data and extract relevant fields for Excel output."""
+    compliance_items = []
+    
+    # Handle the actual Lacework compliance report format
+    if 'recommendations' in compliance_data and isinstance(compliance_data['recommendations'], list):
+        items = compliance_data['recommendations']
+        print(f"Processing {len(items)} compliance recommendations")
+    elif 'data' in compliance_data:
+        report_data = compliance_data['data']
+        
+        # Handle different compliance report formats
+        if isinstance(report_data, list):
+            # Direct list of compliance items
+            items = report_data
+        elif isinstance(report_data, dict) and 'recommendations' in report_data:
+            # Format with recommendations array
+            items = report_data['recommendations']
+        elif isinstance(report_data, dict) and 'violations' in report_data:
+            # Format with violations array
+            items = report_data['violations']
+        else:
+            print(f"Unknown compliance report format: {type(report_data)}")
+            return compliance_items
+        
+        print(f"Processing {len(items)} compliance items")
+    else:
+        print("No recommendations or data found in compliance report")
+        return compliance_items
+    
+    for item in items:
+        # Extract policy information
+        policy_id = item.get('policyId', item.get('REC_ID', 'Unknown'))
+        policy_info = policy_details.get(policy_id, {})
+        
+        # Skip if policy is not a compliance policy
+        if policy_info.get('status') == 'Skipped':
+            continue
+        
+        # Extract account information
+        account_id = item.get('accountId', item.get('ACCOUNT_ID', 'Unknown'))
+        account_alias = item.get('accountAlias', item.get('ACCOUNT_ALIAS', ''))
+        
+        # Format account information
+        if account_alias:
+            account = f"{account_id} ({account_alias})"
+        else:
+            account = account_id
+        
+        # Extract compliance status
+        status = item.get('status', item.get('STATUS', 'Non-Compliant'))
+        
+        # Handle violations array - each violation is a separate compliance item
+        violations = item.get('VIOLATIONS', [])
+        if violations:
+            for violation in violations:
+                # Extract resource information from violation
+                resource_arn = violation.get('resource', 'Unknown')
+                region = violation.get('region', 'Unknown')
+                
+                # Format resource with account information
+                if resource_arn != 'Unknown' and resource_arn.startswith('arn:aws:'):
+                    if account_alias:
+                        resource_arn += f" (Account: {account_id}, Alias: {account_alias})"
+                    elif account_id != 'Unknown':
+                        resource_arn += f" (Account: {account_id})"
+                
+                compliance_item = {
+                    'policy_id': policy_id,
+                    'policy_name': policy_info.get('policy_name', item.get('TITLE', 'Unknown')),
+                    'description': policy_info.get('description', item.get('TITLE', 'N/A')),
+                    'remediation': policy_info.get('remediation', 'N/A'),
+                    'severity': policy_info.get('severity', str(item.get('SEVERITY', 'Unknown'))),
+                    'resource': resource_arn,
+                    'region': region,
+                    'account': account,
+                    'compliance_status': status,
+                    'raw_data': item
+                }
+                
+                compliance_items.append(compliance_item)
+        else:
+            # No violations, but still create a compliance item for the policy
+            compliance_item = {
+                'policy_id': policy_id,
+                'policy_name': policy_info.get('policy_name', item.get('TITLE', 'Unknown')),
+                'description': policy_info.get('description', item.get('TITLE', 'N/A')),
+                'remediation': policy_info.get('remediation', 'N/A'),
+                'severity': policy_info.get('severity', str(item.get('SEVERITY', 'Unknown'))),
+                'resource': account_id,  # Use account ID as resource if no specific resource
+                'region': 'Unknown',
+                'account': account,
+                'compliance_status': status,
+                'raw_data': item
+            }
+            
+            compliance_items.append(compliance_item)
+    
+    print(f"Processed {len(compliance_items)} compliance items")
+    return compliance_items
+
+
 def extract_alert_details(alert: Dict, cache_dir: Path, credentials: Dict) -> Dict:
     """Extract relevant details from an alert."""
     # Extract basic alert information
@@ -730,9 +976,9 @@ def extract_alert_details(alert: Dict, cache_dir: Path, credentials: Dict) -> Di
     }
 
 
-def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: str, end_date: str, account: str):
-    """Write alert details to Excel file with proper formatting."""
-    fieldnames = [
+def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: str, end_date: str, account: str, compliance_data: List[Dict] = None, report_name: str = None, compliance_report_name: str = None):
+    """Write alert details and compliance status to Excel file with proper formatting."""
+    alert_fieldnames = [
         'Policy ID',
         'Policy Title',
         'Description',
@@ -743,6 +989,17 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
         'Account',
         'Alert Status',
         'Alert ID'
+    ]
+    
+    compliance_fieldnames = [
+        'Policy ID',
+        'Policy Title',
+        'Description',
+        'Remediation Steps',
+        'Severity',
+        'Resource',
+        'Region',
+        'Account'
     ]
     
     # Define severity order for sorting
@@ -760,11 +1017,22 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
     
     sorted_alerts = sorted(alerts_data, key=sort_key)
     
+    # Sort compliance data by severity, then policy ID
+    def compliance_sort_key(item):
+        severity = item.get('severity', 'Unknown').lower()
+        severity_rank = severity_order.get(severity, 999)
+        policy_id = item.get('policy_id', '')
+        return (severity_rank, policy_id)
+    
+    sorted_compliance = sorted(compliance_data, key=compliance_sort_key) if compliance_data else []
+    
     try:
-        # Create workbook and worksheet
+        # Create workbook
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Lacework Alerts"
+        
+        # Create Compliance Status worksheet first
+        ws_compliance = wb.active
+        ws_compliance.title = "Compliance Status"
         
         # Define styles
         header_font = Font(bold=True, color="FFFFFF")
@@ -781,15 +1049,73 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
             bottom=Side(style='thin')
         )
         
-        # Write header row
-        for col, field in enumerate(fieldnames, 1):
-            cell = ws.cell(row=1, column=col, value=field)
+        # Write Compliance Status header row (if compliance data exists)
+        if sorted_compliance:
+            for col, field in enumerate(compliance_fieldnames, 1):
+                cell = ws_compliance.cell(row=1, column=col, value=field)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = header_alignment
+                cell.border = thin_border
+            
+            # Write Compliance Status data rows
+            for row, item in enumerate(sorted_compliance, 2):
+                # Clean fields to ensure they're strings and handle None values
+                def clean_field(field_value):
+                    if field_value is None:
+                        return 'N/A'
+                    return str(field_value) if field_value else 'N/A'
+                
+                row_data = {
+                    'Policy ID': clean_field(item['policy_id']),
+                    'Policy Title': clean_field(item['policy_name']),
+                    'Description': clean_field(item['description']),
+                    'Remediation Steps': clean_field(item['remediation']),
+                    'Severity': item['severity'].title() if item['severity'] != 'Unknown' else 'Unknown',
+                    'Resource': clean_field(item['resource']),
+                    'Region': clean_field(item['region']),
+                    'Account': clean_field(item['account'])
+                }
+                
+                # Write each field to the row
+                for col, field in enumerate(compliance_fieldnames, 1):
+                    cell = ws_compliance.cell(row=row, column=col, value=row_data[field])
+                    cell.border = thin_border
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+            
+            # Auto-adjust Compliance Status column widths
+            for col in range(1, len(compliance_fieldnames) + 1):
+                column_letter = get_column_letter(col)
+                
+                # Calculate max width based on content
+                max_length = 0
+                for row in range(1, len(sorted_compliance) + 2):
+                    cell_value = ws_compliance.cell(row=row, column=col).value
+                    if cell_value:
+                        # Count characters, but limit very long lines
+                        line_lengths = [len(line) for line in str(cell_value).split('\n')]
+                        max_length = max(max_length, max(line_lengths))
+                
+                # Set column width with reasonable limits
+                adjusted_width = min(max(max_length + 2, 15), 80)
+                ws_compliance.column_dimensions[column_letter].width = adjusted_width
+            
+            # Set Compliance Status row heights for better readability
+            for row in range(2, len(sorted_compliance) + 2):
+                ws_compliance.row_dimensions[row].height = 60  # Allow for wrapped text
+        
+        # Create Alerts worksheet
+        ws_alerts = wb.create_sheet("Compliance Alerts")
+        
+        # Write Alerts header row
+        for col, field in enumerate(alert_fieldnames, 1):
+            cell = ws_alerts.cell(row=1, column=col, value=field)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = header_alignment
             cell.border = thin_border
         
-        # Write data rows
+        # Write Alerts data rows
         for row, alert in enumerate(sorted_alerts, 2):
             # Clean fields to ensure they're strings and handle None values
             def clean_field(field_value):
@@ -815,8 +1141,8 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
             }
             
             # Write each field to the row
-            for col, field in enumerate(fieldnames, 1):
-                cell = ws.cell(row=row, column=col, value=row_data[field])
+            for col, field in enumerate(alert_fieldnames, 1):
+                cell = ws_alerts.cell(row=row, column=col, value=row_data[field])
                 cell.border = thin_border
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
                 
@@ -825,14 +1151,14 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
                     cell.hyperlink = Hyperlink(ref=alert_url, target=alert_url)
                     cell.font = Font(color="0000FF", underline="single")
         
-        # Auto-adjust column widths
-        for col in range(1, len(fieldnames) + 1):
+        # Auto-adjust Alerts column widths
+        for col in range(1, len(alert_fieldnames) + 1):
             column_letter = get_column_letter(col)
             
             # Calculate max width based on content
             max_length = 0
             for row in range(1, len(sorted_alerts) + 2):
-                cell_value = ws.cell(row=row, column=col).value
+                cell_value = ws_alerts.cell(row=row, column=col).value
                 if cell_value:
                     # Count characters, but limit very long lines
                     line_lengths = [len(line) for line in str(cell_value).split('\n')]
@@ -840,32 +1166,56 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
             
             # Set column width with reasonable limits
             adjusted_width = min(max(max_length + 2, 15), 80)
-            ws.column_dimensions[column_letter].width = adjusted_width
+            ws_alerts.column_dimensions[column_letter].width = adjusted_width
         
-        # Set row heights for better readability
+        # Set Alerts row heights for better readability
         for row in range(2, len(sorted_alerts) + 2):
-            ws.row_dimensions[row].height = 60  # Allow for wrapped text
+            ws_alerts.row_dimensions[row].height = 60  # Allow for wrapped text
+        
         
         # Add a summary sheet
-        summary_ws = wb.create_sheet("Summary")
+        summary_ws = wb.create_sheet("Compliance Summary")
+        
+        # Determine compliance framework name
+        compliance_framework = "General Compliance"
+        if report_name:
+            compliance_framework = report_name
+        elif compliance_report_name:
+            compliance_framework = compliance_report_name
         
         # Add summary information
         summary_data = [
-            ["Lacework Alert Report Summary", ""],
-            ["Date Range", f"{start_date} to {end_date}"],
-            ["Total Alerts", len(alerts_data)],
+            ["Lacework Compliance Report Summary", ""],
             ["Report Generated", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+            ["Compliance Framework", compliance_framework],
+            ["Date Range", f"{start_date} to {end_date}"],
             ["", ""],
-            ["Severity Distribution", ""]
+            ["Compliance Policies (Non-Compliant)", ""]
         ]
         
-        # Calculate severity distribution
-        severity_counts = {}
+        # Calculate compliance severity distribution first (if compliance data exists)
+        if sorted_compliance:
+            compliance_severity_counts = {}
+            for item in sorted_compliance:
+                severity = item['severity']  # Already mapped to text labels
+                compliance_severity_counts[severity] = compliance_severity_counts.get(severity, 0) + 1
+            
+            for severity, count in sorted(compliance_severity_counts.items(), key=lambda x: severity_order.get(x[0], 999)):
+                summary_data.append([severity, count])
+        
+        # Add compliance alerts section
+        summary_data.extend([
+            ["", ""],
+            ["Compliance Alerts", ""]
+        ])
+        
+        # Calculate alert severity distribution
+        alert_severity_counts = {}
         for alert in sorted_alerts:
             severity = alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown'
-            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            alert_severity_counts[severity] = alert_severity_counts.get(severity, 0) + 1
         
-        for severity, count in sorted(severity_counts.items()):
+        for severity, count in sorted(alert_severity_counts.items(), key=lambda x: severity_order.get(x[0], 999)):
             summary_data.append([severity, count])
         
         # Write summary data
@@ -873,9 +1223,9 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
             summary_ws.cell(row=row, column=1, value=label)
             summary_ws.cell(row=row, column=2, value=value)
             
-            if label == "Lacework Alert Report Summary":
+            if label == "Lacework Compliance Report Summary":
                 summary_ws.cell(row=row, column=1).font = Font(bold=True, size=14)
-            elif label in ["Date Range", "Total Alerts", "Report Generated"]:
+            elif label in ["Report Generated", "Compliance Framework", "Date Range", "Compliance Policies (Non-Compliant)", "Compliance Alerts"]:
                 summary_ws.cell(row=row, column=1).font = Font(bold=True)
         
         # Auto-adjust summary column widths
@@ -885,6 +1235,8 @@ def write_alert_excel(alerts_data: List[Dict], output_file: Path, start_date: st
         # Save the workbook
         wb.save(output_file)
         print(f"Successfully wrote {len(alerts_data)} alerts to {output_file}")
+        if sorted_compliance:
+            print(f"Successfully wrote {len(sorted_compliance)} compliance items to Compliance Status tab")
         
     except Exception as e:
         print(f"Error writing Excel file: {e}")
@@ -1116,28 +1468,172 @@ def main():
         # Output to Excel format
         output_file = output_dir / f"{base_filename}.xlsx"
     
+    # Get compliance status data by default (unless skipped)
+    compliance_data = []
+    if not args.skip_compliance:
+        print("Step 7: Retrieving compliance status...")
+        
+        # Get AWS accounts
+        aws_accounts = get_aws_accounts(credentials)
+        if not aws_accounts:
+            print("No AWS accounts found. Skipping compliance status.")
+        else:
+            # Get compliance reports for each account
+            total_accounts = len(aws_accounts)
+            print(f"Processing compliance reports for {total_accounts} AWS accounts...")
+            
+            # Dictionary to group compliance items by policy ID
+            compliance_by_policy = {}
+            
+            for i, account in enumerate(aws_accounts, 1):
+                account_id = account['account_id']
+                if not account_id:
+                    continue
+                
+                # Show progress indicator
+                progress_percent = (i / total_accounts) * 100
+                print(f"[{i}/{total_accounts}] ({progress_percent:.1f}%) Getting compliance report for account: {account_id}")
+                
+                compliance_report = get_compliance_report(
+                    account_id, 
+                    credentials, 
+                    cache_dir, 
+                    args.compliance_report
+                )
+                
+                if compliance_report:
+                    # Parse compliance data
+                    parsed_compliance = parse_compliance_report_data(compliance_report, policy_details)
+                    
+                    # Group by policy ID
+                    for item in parsed_compliance:
+                        policy_id = item['policy_id']
+                        if policy_id not in compliance_by_policy:
+                            # Get policy details from cache (same as used for alerts)
+                            policy_info = policy_details.get(policy_id, {})
+                            
+                            compliance_by_policy[policy_id] = {
+                                'policy_id': policy_id,
+                                'policy_name': policy_info.get('policy_name', item.get('policy_name', 'Unknown')),
+                                'description': policy_info.get('description', item.get('description', 'N/A')),
+                                'remediation': policy_info.get('remediation', item.get('remediation', 'N/A')),
+                                'severity': item['severity'],
+                                'resources': [],
+                                'regions': set(),
+                                'accounts': set(),
+                                'compliance_status': item['compliance_status'],
+                                'raw_data': item['raw_data']
+                            }
+                        
+                        # Add resource information
+                        compliance_by_policy[policy_id]['resources'].append(item['resource'])
+                        compliance_by_policy[policy_id]['regions'].add(item['region'])
+                        compliance_by_policy[policy_id]['accounts'].add(item['account'])
+                    
+                    print(f"  → Found {len(parsed_compliance)} compliance items")
+                else:
+                    print(f"  → No compliance data found")
+            
+            # Get policy details for any compliance policies not already cached
+            print("Retrieving policy details for compliance policies...")
+            compliance_policy_ids = set(compliance_by_policy.keys())
+            missing_policy_ids = compliance_policy_ids - set(policy_details.keys())
+            
+            if missing_policy_ids:
+                print(f"Found {len(missing_policy_ids)} compliance policies not in alerts cache, retrieving details...")
+                for policy_id in missing_policy_ids:
+                    policy_info = get_policy_details_with_retry(client, policy_id, policy_cache_dir)
+                    policy_details[policy_id] = policy_info
+            
+            # Convert grouped data back to list format
+            compliance_data = []
+            for policy_id, policy_data in compliance_by_policy.items():
+                # Get updated policy details
+                policy_info = policy_details.get(policy_id, {})
+                
+                # Format resources as numbered list, sorted alphabetically
+                sorted_resources = sorted(policy_data['resources'])
+                if len(sorted_resources) == 1:
+                    resource = sorted_resources[0]
+                else:
+                    resource = '\n'.join(f"{i+1}. {res}" for i, res in enumerate(sorted_resources))
+                
+                # Format regions and accounts
+                region = '\n'.join(sorted(policy_data['regions'])) if policy_data['regions'] else 'Unknown'
+                account = '\n'.join(sorted(policy_data['accounts'])) if policy_data['accounts'] else 'Unknown'
+                
+                # Map numeric severity to text labels
+                def map_compliance_severity(severity_value):
+                    """Map numeric severity from compliance reports to text labels."""
+                    severity_map = {
+                        '1': 'Critical',
+                        '2': 'High', 
+                        '3': 'Medium',
+                        '4': 'Low',
+                        '5': 'Info',
+                        '6': 'Info',  # Additional severity levels map to Info
+                        '0': 'Info',  # Some systems use 0 for informational
+                        '': 'Info',   # Empty severity defaults to Info
+                        None: 'Info'  # None severity defaults to Info
+                    }
+                    return severity_map.get(str(severity_value), 'Info')
+                
+                compliance_item = {
+                    'policy_id': policy_data['policy_id'],
+                    'policy_name': policy_info.get('policy_name', policy_data['policy_name']),
+                    'description': policy_info.get('description', policy_data['description']),
+                    'remediation': policy_info.get('remediation', policy_data['remediation']),
+                    'severity': map_compliance_severity(policy_data['severity']),
+                    'resource': resource,
+                    'region': region,
+                    'account': account,
+                    'compliance_status': policy_data['compliance_status'],
+                    'raw_data': policy_data['raw_data']
+                }
+                compliance_data.append(compliance_item)
+            
+            print(f"\nCompleted processing all accounts. Found {len(compliance_data)} unique policies with compliance issues")
+    
     # Write output
-    print("Step 7: Writing Excel output...")
-    write_alert_excel(enriched_alerts, output_file, start_date, end_date, credentials['account'])
+    print("Step 8: Writing Excel output...")
+    write_alert_excel(enriched_alerts, output_file, start_date, end_date, credentials['account'], compliance_data, args.report, args.compliance_report)
     
     # Final summary
     print("\n=== Final Summary ===")
     print(f"Date Range: {start_date} to {end_date}")
     print(f"Total alerts processed: {len(enriched_alerts)}")
+    if compliance_data:
+        print(f"Total compliance items: {len(compliance_data)}")
     print(f"Unique policies: {len(unique_policy_ids)}")
     print(f"Output file: {output_file}")
     
-    # Severity distribution
-    severity_counts = {}
+    # Alert severity distribution
+    alert_severity_counts = {}
     for alert in enriched_alerts:
         severity = alert['severity'].title() if alert['severity'] != 'Unknown' else 'Unknown'
-        severity_counts[severity] = severity_counts.get(severity, 0) + 1
+        alert_severity_counts[severity] = alert_severity_counts.get(severity, 0) + 1
     
-    print("\nSeverity distribution:")
-    for severity, count in sorted(severity_counts.items()):
+    # Define severity order for sorting
+    severity_order = {
+        'Critical': 1, 'High': 2, 'Medium': 3, 'Low': 4, 'Info': 5, 'Unknown': 6
+    }
+    
+    print("\nAlert severity distribution:")
+    for severity, count in sorted(alert_severity_counts.items(), key=lambda x: severity_order.get(x[0], 999)):
         print(f"  {severity}: {count}")
     
-    print(f"\nAlert reporting analysis complete!")
+    # Compliance severity distribution
+    if compliance_data:
+        compliance_severity_counts = {}
+        for item in compliance_data:
+            severity = item['severity']  # Already mapped to text labels
+            compliance_severity_counts[severity] = compliance_severity_counts.get(severity, 0) + 1
+        
+        print("\nCompliance severity distribution:")
+        for severity, count in sorted(compliance_severity_counts.items(), key=lambda x: severity_order.get(x[0], 999)):
+            print(f"  {severity}: {count}")
+    
+    print(f"\nLacework reporting analysis complete!")
 
 
 if __name__ == "__main__":
