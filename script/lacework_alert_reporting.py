@@ -695,8 +695,12 @@ def get_compliance_report(account_id: str, credentials: Dict, cache_dir: Path, r
     compliance_cache_dir = cache_dir / "compliance-reports"
     compliance_cache_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create cache file path
-    cache_file = compliance_cache_dir / f"compliance_{account_id}.json"
+    # Create cache filename that includes both account ID and report name
+    if report_name:
+        report_suffix = report_name.lower().replace(' ', '_').replace('/', '_').replace('(', '').replace(')', '').replace(':', '').replace('.', '')
+        cache_file = compliance_cache_dir / f"compliance_{account_id}_{report_suffix}.json"
+    else:
+        cache_file = compliance_cache_dir / f"compliance_{account_id}_default.json"
     
     # Check if cache file exists and is less than 24 hours old
     if cache_file.exists():
@@ -730,7 +734,7 @@ def get_compliance_report(account_id: str, credentials: Dict, cache_dir: Path, r
         
         # Add report name filter if specified
         if report_name:
-            cmd.extend(["--report-name", report_name])
+            cmd.extend(["--report_name", report_name])
         
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
         
@@ -828,12 +832,19 @@ def parse_compliance_report_data(compliance_data: Dict, policy_details: Dict) ->
                     elif account_id != 'Unknown':
                         resource_arn += f" (Account: {account_id})"
                 
+                # Use compliance report severity (numeric) over policy cache severity (text)
+                compliance_severity = item.get('SEVERITY', 'Unknown')
+                if compliance_severity != 'Unknown':
+                    severity = str(compliance_severity)
+                else:
+                    severity = policy_info.get('severity', 'Unknown')
+                
                 compliance_item = {
                     'policy_id': policy_id,
                     'policy_name': policy_info.get('policy_name', item.get('TITLE', 'Unknown')),
                     'description': policy_info.get('description', item.get('TITLE', 'N/A')),
                     'remediation': policy_info.get('remediation', 'N/A'),
-                    'severity': policy_info.get('severity', str(item.get('SEVERITY', 'Unknown'))),
+                    'severity': severity,
                     'resource': resource_arn,
                     'region': region,
                     'account': account,
@@ -1494,11 +1505,13 @@ def main():
                 progress_percent = (i / total_accounts) * 100
                 print(f"[{i}/{total_accounts}] ({progress_percent:.1f}%) Getting compliance report for account: {account_id}")
                 
+                # Use report name from either -r or --compliance-report
+                report_name = args.report or args.compliance_report
                 compliance_report = get_compliance_report(
                     account_id, 
                     credentials, 
                     cache_dir, 
-                    args.compliance_report
+                    report_name
                 )
                 
                 if compliance_report:
