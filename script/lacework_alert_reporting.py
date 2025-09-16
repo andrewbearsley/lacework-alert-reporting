@@ -1547,14 +1547,24 @@ def main():
                         compliance_by_policy_account[group_key]['resources'].append(item['resource'])
                         compliance_by_policy_account[group_key]['regions'].add(item['region'])
                     
-                    print(f"  → Found {len(parsed_compliance)} compliance items")
                 else:
                     print(f"  → No compliance data found")
+            
+            # Get policy details for any compliance policies not already cached
+            print("Retrieving policy details for compliance policies...")
+            compliance_policy_ids = set(policy_data['policy_id'] for policy_data in compliance_by_policy_account.values())
+            missing_policy_ids = compliance_policy_ids - set(policy_details.keys())
+            
+            if missing_policy_ids:
+                print(f"Found {len(missing_policy_ids)} compliance policies not in alerts cache, retrieving details...")
+                for policy_id in missing_policy_ids:
+                    policy_info = get_policy_details_with_retry(client, policy_id, policy_cache_dir)
+                    policy_details[policy_id] = policy_info
             
             # Convert grouped data back to list format
             compliance_data = []
             for group_key, policy_data in compliance_by_policy_account.items():
-                # Get policy details from cache
+                # Get policy details from cache (now guaranteed to be available)
                 policy_id = policy_data['policy_id']
                 policy_info = policy_details.get(policy_id, {})
                 
@@ -1597,17 +1607,6 @@ def main():
                     'raw_data': policy_data['raw_data']
                 }
                 compliance_data.append(compliance_item)
-            
-            # Get policy details for any compliance policies not already cached
-            print("Retrieving policy details for compliance policies...")
-            compliance_policy_ids = set(item['policy_id'] for item in compliance_data)
-            missing_policy_ids = compliance_policy_ids - set(policy_details.keys())
-            
-            if missing_policy_ids:
-                print(f"Found {len(missing_policy_ids)} compliance policies not in alerts cache, retrieving details...")
-                for policy_id in missing_policy_ids:
-                    policy_info = get_policy_details_with_retry(client, policy_id, policy_cache_dir)
-                    policy_details[policy_id] = policy_info
             
             print(f"\nCompleted processing all accounts. Found {len(compliance_data)} compliance items across all accounts")
     
