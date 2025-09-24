@@ -772,7 +772,7 @@ def parse_compliance_report_data(compliance_data: Dict, policy_details: Dict) ->
     # Handle the actual Lacework compliance report format
     if 'recommendations' in compliance_data and isinstance(compliance_data['recommendations'], list):
         items = compliance_data['recommendations']
-        print(f"Processing {len(items)} compliance recommendations")
+        recommendations_count = len(items)
     elif 'data' in compliance_data:
         report_data = compliance_data['data']
         
@@ -780,17 +780,19 @@ def parse_compliance_report_data(compliance_data: Dict, policy_details: Dict) ->
         if isinstance(report_data, list):
             # Direct list of compliance items
             items = report_data
+            recommendations_count = len(items)
         elif isinstance(report_data, dict) and 'recommendations' in report_data:
             # Format with recommendations array
             items = report_data['recommendations']
+            recommendations_count = len(items)
         elif isinstance(report_data, dict) and 'violations' in report_data:
             # Format with violations array
             items = report_data['violations']
+            recommendations_count = len(items)
         else:
             print(f"Unknown compliance report format: {type(report_data)}")
             return compliance_items
         
-        print(f"Processing {len(items)} compliance items")
     else:
         print("No recommendations or data found in compliance report")
         return compliance_items
@@ -870,7 +872,11 @@ def parse_compliance_report_data(compliance_data: Dict, policy_details: Dict) ->
             
             compliance_items.append(compliance_item)
     
-    print(f"Processed {len(compliance_items)} compliance items")
+    # Print combined message
+    if 'recommendations_count' in locals():
+        print(f"Found {recommendations_count} compliance recommendations for {len(compliance_items)} resources")
+    else:
+        print(f"Found {len(compliance_items)} compliance items")
     return compliance_items
 
 
