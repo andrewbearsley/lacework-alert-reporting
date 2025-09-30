@@ -25,8 +25,9 @@ class TagRetriever:
             },
             'lambda:function': {
                 'primary': 'ec2:security-group', 
-                'secondary': 'ec2:vpc',
-                'description': 'Lambda -> Security Group -> VPC'
+                'secondary': 'iam:role',
+                'tertiary': 'ec2:vpc',
+                'description': 'Lambda -> Security Group -> IAM Role -> VPC'
             },
             'rds:db': {
                 'primary': 'ec2:subnet',
@@ -72,7 +73,7 @@ class TagRetriever:
                 return f"{related_tags} (from {primary_type})"
         
         # Try secondary fallback strategy (if it exists)
-        secondary_type = strategy['secondary']
+        secondary_type = strategy.get('secondary')
         if secondary_type:
             related_arn = self._extract_related_arn(arn, resource_type, resource_config, secondary_type, account_id)
             
@@ -80,6 +81,16 @@ class TagRetriever:
                 related_tags = self._get_cached_resource_tags(related_arn, account_id, start_date, end_date)
                 if related_tags and related_tags != 'N/A':
                     return f"{related_tags} (from {secondary_type})"
+        
+        # Try tertiary fallback strategy (if it exists)
+        tertiary_type = strategy.get('tertiary')
+        if tertiary_type:
+            related_arn = self._extract_related_arn(arn, resource_type, resource_config, tertiary_type, account_id)
+            
+            if related_arn:
+                related_tags = self._get_cached_resource_tags(related_arn, account_id, start_date, end_date)
+                if related_tags and related_tags != 'N/A':
+                    return f"{related_tags} (from {tertiary_type})"
         
         return 'N/A'
     
@@ -117,6 +128,13 @@ class TagRetriever:
             vpc_id = resource_config.get('VpcId')
             if vpc_id:
                 return f"arn:aws:ec2:ap-southeast-2:{account_id}:vpc/{vpc_id}"
+        
+        elif related_type == 'iam:role':
+            # For Lambda, get IAM role from resource config
+            if resource_type == 'lambda:function':
+                role_arn = resource_config.get('Role')
+                if role_arn:
+                    return role_arn
         
         return None
     
@@ -159,10 +177,12 @@ class TagRetriever:
         # Always include fallback resource types for tag fallback strategies
         fallback_types = set()
         for strategy in self.fallback_strategies.values():
-            if strategy['primary']:
+            if strategy.get('primary'):
                 fallback_types.add(strategy['primary'])
-            if strategy['secondary']:
+            if strategy.get('secondary'):
                 fallback_types.add(strategy['secondary'])
+            if strategy.get('tertiary'):
+                fallback_types.add(strategy['tertiary'])
         
         resource_types.update(fallback_types)
         print(f"Resource types identified: {sorted(resource_types)}")
@@ -417,10 +437,24 @@ class TagRetriever:
                                     'resource_config': resource_config
                                 }
                             else:
-                                # Already cached - only update if new data has more fields in resource_config
+                                # Already cached - only update if new data is more complete
                                 existing_config = account_tags_data['all_resources'][resource_id].get('resource_config', {})
                                 if isinstance(resource_config, dict) and isinstance(existing_config, dict):
-                                    if len(resource_config.keys()) > len(existing_config.keys()):
+                                    should_update = False
+                                    
+                                    # Special handling for IAM roles - prefer data with Role.Tags
+                                    if item.get('resourceType') == 'iam:role':
+                                        new_has_tags = 'Role' in resource_config and isinstance(resource_config.get('Role'), dict) and 'Tags' in resource_config['Role']
+                                        existing_has_tags = 'Role' in existing_config and isinstance(existing_config.get('Role'), dict) and 'Tags' in existing_config['Role']
+                                        
+                                        if new_has_tags and not existing_has_tags:
+                                            should_update = True
+                                    else:
+                                        # For other resources, prefer more fields
+                                        if len(resource_config.keys()) > len(existing_config.keys()):
+                                            should_update = True
+                                    
+                                    if should_update:
                                         account_tags_data['all_resources'][resource_id]['resource_config'] = resource_config
                                         account_tags_data['all_resources'][resource_id]['tags'] = tags
                                         account_tags_data['all_resources'][resource_id]['formatted_tags'] = formatted_tags
@@ -484,6 +518,13 @@ class TagRetriever:
                                     vpc_id = resource_config['VpcId']
                                     arn = f"arn:aws:ec2:ap-southeast-2:{account_id}:vpc/{vpc_id}"
                                     account_tags_data['resource_tags'][arn] = formatted_tags
+                            
+                            # Handle IAM roles separately (tags are in Role.Tags)
+                            if resource_config and isinstance(resource_config, dict) and item.get('resourceType') == 'iam:role':
+                                if 'Role' in resource_config and isinstance(resource_config['Role'], dict):
+                                    role_arn = resource_config['Role'].get('Arn')
+                                    if role_arn:
+                                        account_tags_data['resource_tags'][role_arn] = formatted_tags
                 
                 # Sort the cache by resource type and then resource name
                 sorted_resources = {}
@@ -634,12 +675,17 @@ class TagRetriever:
                 if 'db/' in resource_name:
                     return 'rds:db'
             elif service == 'lambda':
-                if 'function:' in resource_name:
+                # Lambda ARN format: arn:aws:lambda:region:account:function:name
+                # So arn_parts[5] is 'function', and the function name is in arn_parts[6] if it exists
+                if resource_name == 'function' or resource_name.startswith('function:'):
                     return 'lambda:function'
             elif service == 's3':
                 return 's3:bucket'
             elif service == 'elasticloadbalancing':
                 return 'elbv2:loadbalancer'
+            elif service == 'iam':
+                if 'role/' in resource_name:
+                    return 'iam:role'
             
             # Fallback to service name
             return service
@@ -650,6 +696,12 @@ class TagRetriever:
         """Extract tags from resource configuration."""
         if not isinstance(resource_config, dict):
             return {}
+        
+        # For IAM roles, tags are nested in Role.Tags
+        if 'Role' in resource_config and isinstance(resource_config['Role'], dict):
+            role_tags = resource_config['Role'].get('Tags')
+            if role_tags:
+                return role_tags
         
         # Try different tag field names
         tag_fields = ['TagList', 'Tags', 'tags', 'TagSet', 'tagSet', 'tagList']
