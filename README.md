@@ -203,6 +203,7 @@ Generates an Excel report with professional formatting:
 
 - CLI Documentation: [Get started with Lacework FortiCNAPP CLI](https://docs.fortinet.com/document/lacework-forticnapp/latest/cli-reference/68020/get-started-with-the-lacework-forticnapp-cli)
 - API Documentation: [About the Lacework FortiCNAPP API](https://docs.fortinet.com/document/lacework-forticnapp/latest/api-reference/863111/about-the-lacework-forticnapp-api)
+- API Documentation: [Lacework API Documentation](https://yourlacework.lacework.net/api/v2/docs)
 - Query Language Documentation: [LQL Overview](https://docs.fortinet.com/document/lacework-forticnapp/latest/lql-reference/598361/lql-overview)
 - Python SDK Documentation: [Lacework Python SDK Documentation](https://lacework.github.io/python-sdk)
 
