@@ -194,7 +194,21 @@ class TagRetriever:
         
         for arn in resource_arns:
             account_id = extract_account_id_from_arn(arn)
-            if not account_id:
+            
+            # Special handling for S3 - ARNs don't contain account ID
+            if not account_id and ':s3:' in arn:
+                # For S3, check all account caches since bucket names are globally unique
+                # We'll check the most likely account first (the one we're filtering for)
+                # This is a bit hacky but works for single-account filtering
+                resource_type = self._get_resource_type_from_arn(arn)
+                
+                # Try to find S3 bucket in any account cache
+                # Since we're typically filtering by account, we'll check common account IDs
+                # or we can extract from the compliance report context (passed separately)
+                # For now, mark as uncached to process later
+                uncached_resources.append(arn)
+                continue
+            elif not account_id:
                 tags_result[arn] = 'N/A'
                 continue
             
@@ -287,9 +301,15 @@ class TagRetriever:
         
         # Group by account
         accounts_resources = {}
+        s3_buckets_no_account = []  # S3 buckets without account ID in ARN
+        
         for arn in uncached_resources:
             account_id = extract_account_id_from_arn(arn)
-            if account_id:
+            
+            # Special handling for S3 - ARNs don't contain account ID
+            if not account_id and ':s3:' in arn:
+                s3_buckets_no_account.append(arn)
+            elif account_id:
                 if account_id not in accounts_resources:
                     accounts_resources[account_id] = []
                 accounts_resources[account_id].append(arn)
@@ -297,6 +317,20 @@ class TagRetriever:
         print(f"Grouped resources into {len(accounts_resources)} AWS accounts")
         for account_id, resources in accounts_resources.items():
             print(f"  Account {account_id}: {len(resources)} resources")
+        
+        if s3_buckets_no_account:
+            print(f"  S3 buckets (no account in ARN): {len(s3_buckets_no_account)} resources")
+            # For S3, we need to infer the account from context
+            # If we're filtering by a single account, assume all S3 buckets belong to that account
+            if len(accounts_resources) == 1:
+                inferred_account = list(accounts_resources.keys())[0]
+                print(f"  Inferring S3 buckets belong to account: {inferred_account}")
+                if inferred_account not in accounts_resources:
+                    accounts_resources[inferred_account] = []
+                accounts_resources[inferred_account].extend(s3_buckets_no_account)
+            elif len(accounts_resources) == 0:
+                # No other resources to infer from - we'll need to handle S3 separately
+                print(f"  Warning: Cannot infer account for S3 buckets without context")
         
         # Process each account
         start_time_total = time.time()
@@ -337,24 +371,44 @@ class TagRetriever:
                 all_resources = []
                 for resource_type in lacework_resource_types:
                     print(f"    Processing resource type: {resource_type}")
-                    # Use resourceConfig filter with regex to match account ID
-                    # This matches the UI's approach to filtering by AWS account
-                    search_request = {
-                        "csp": "AWS",
-                        "filters": [
-                            {
-                                "field": "resourceType",
-                                "expression": "eq",
-                                "value": resource_type
-                            },
-                            {
-                                "field": "resourceConfig",
-                                "expression": "rlike",
-                                "value": f'.*{account_id}.*'
-                            }
-                        ],
-                        "returns": ["resourceId", "resourceType", "resourceConfig"]
-                    }
+                    
+                    # Special handling for S3 buckets - use cloudDetails.accountID instead of resourceConfig
+                    if resource_type == 's3:bucket':
+                        search_request = {
+                            "csp": "AWS",
+                            "filters": [
+                                {
+                                    "field": "resourceType",
+                                    "expression": "eq",
+                                    "value": resource_type
+                                },
+                                {
+                                    "field": "cloudDetails.accountID",
+                                    "expression": "eq",
+                                    "value": account_id
+                                }
+                            ],
+                            "returns": ["resourceId", "resourceType", "resourceConfig", "resourceTags"]
+                        }
+                    else:
+                        # Use resourceConfig filter with regex to match account ID
+                        # This matches the UI's approach to filtering by AWS account
+                        search_request = {
+                            "csp": "AWS",
+                            "filters": [
+                                {
+                                    "field": "resourceType",
+                                    "expression": "eq",
+                                    "value": resource_type
+                                },
+                                {
+                                    "field": "resourceConfig",
+                                    "expression": "rlike",
+                                    "value": f'.*{account_id}.*'
+                                }
+                            ],
+                            "returns": ["resourceId", "resourceType", "resourceConfig", "resourceTags"]
+                        }
                     
                     try:
                         response = self.client_wrapper.search_resources(search_request)
@@ -420,10 +474,15 @@ class TagRetriever:
                     for item in actual_data:
                         resource_id = item.get('resourceId')
                         resource_config = item.get('resourceConfig', {})
+                        resource_tags = item.get('resourceTags', {})
                         
                         if resource_id:
-                            # Extract tags
-                            tags = self._extract_tags_from_resource_config(resource_config)
+                            # Extract tags - first check top-level resourceTags (for S3, etc.)
+                            # then fall back to resourceConfig tags
+                            if resource_tags and resource_tags != {}:
+                                tags = resource_tags
+                            else:
+                                tags = self._extract_tags_from_resource_config(resource_config)
                             formatted_tags = self._format_tags(tags)
                             
                             # Only store in cache if not already cached, or if new data is more complete
@@ -467,7 +526,13 @@ class TagRetriever:
                             
                             # Also populate resource_tags for all resources (for future lookups)
                             # Construct ARN from resource data
-                            if resource_config and isinstance(resource_config, dict):
+                            
+                            # For S3 buckets, use the resource_id as the bucket name
+                            if item.get('resourceType') == 's3:bucket':
+                                arn = f"arn:aws:s3:::{resource_id}"
+                                account_tags_data['resource_tags'][arn] = formatted_tags
+                            
+                            elif resource_config and isinstance(resource_config, dict):
                                 # For EC2 instances
                                 if 'InstanceId' in resource_config:
                                     instance_id = resource_config['InstanceId']

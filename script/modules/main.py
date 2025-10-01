@@ -202,8 +202,13 @@ def main():
             print("Tag retrieval completed, processing results...")
             
             # Add tags to compliance data
+            s3_count = 0
+            s3_with_tags = 0
             for item in compliance_data:
                 resource = item.get('resource', '')
+                if ':s3:' in resource:
+                    s3_count += 1
+                
                 if resource and resource.startswith('arn:'):
                     # Handle multiple resources by combining their tags
                     if '\n' in resource:
@@ -221,9 +226,19 @@ def main():
                             item['tags'] = 'N/A'
                     else:
                         item['tags'] = resource_tags.get(resource, 'N/A')
+                        if ':s3:' in resource:
+                            if resource_tags.get(resource, 'N/A') != 'N/A':
+                                s3_with_tags += 1
+                            elif s3_count <= 3:  # Debug first 3
+                                print(f"DEBUG S3: {resource}")
+                                print(f"  In resource_tags: {resource in resource_tags}")
+                                print(f"  Value: {resource_tags.get(resource, 'NOT FOUND')}")
                 else:
                     item['tags'] = 'N/A'
+            
             print("Compliance data tag processing completed.")
+            if s3_count > 0:
+                print(f"DEBUG: S3 buckets processed: {s3_count}, with tags: {s3_with_tags}")
         else:
             print("No resource ARNs found in compliance data")
             # Add N/A tags to all items
