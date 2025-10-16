@@ -71,53 +71,73 @@ class ComplianceProcessor:
         if cached_data:
             return cached_data
         
-        try:
-            # Get credentials from client wrapper
-            credentials = self.client_wrapper.credentials
-            
-            # Set up environment variables for Lacework CLI authentication
-            env = os.environ.copy()
-            env['LW_ACCOUNT'] = credentials.get('account', '')
-            env['LW_API_KEY'] = credentials.get('keyId', '')
-            env['LW_API_SECRET'] = credentials.get('secret', '')
-            
-            # Build command to get compliance report
-            cmd = [
-                "lacework", "compliance", "aws", "get-report", account_id,
-                "--status", "non-compliant",
-                "--json",
-                "--api_key", credentials.get('keyId', ''),
-                "--api_secret", credentials.get('secret', ''),
-                "--account", credentials.get('account', '')
-            ]
-            
-            # Add report name filter if specified
-            if report_name:
-                cmd.extend(["--report_name", report_name])
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
-            
-            if result.returncode == 0:
-                compliance_data = json.loads(result.stdout)
+        max_retries = 5
+        backoff_intervals = [60, 60, 60, 60, 60]  # Lacework requires 60s between rate-limited requests
+        
+        for attempt in range(max_retries):
+            try:
+                # Get credentials from client wrapper
+                credentials = self.client_wrapper.credentials
                 
-                # Cache the result
-                self.cache_manager.save_to_cache(cache_file, compliance_data)
-                print(f"Cached compliance report: {cache_file}")
+                # Set up environment variables for Lacework CLI authentication
+                env = os.environ.copy()
+                env['LW_ACCOUNT'] = credentials.get('account', '')
+                env['LW_API_KEY'] = credentials.get('keyId', '')
+                env['LW_API_SECRET'] = credentials.get('secret', '')
                 
-                return compliance_data
-            else:
-                print(f"CLI error retrieving compliance report: {result.stderr}")
+                # Build command to get compliance report
+                cmd = [
+                    "lacework", "compliance", "aws", "get-report", account_id,
+                    "--status", "non-compliant",
+                    "--json",
+                    "--api_key", credentials.get('keyId', ''),
+                    "--api_secret", credentials.get('secret', ''),
+                    "--account", credentials.get('account', '')
+                ]
+                
+                # Add report name filter if specified
+                if report_name:
+                    cmd.extend(["--report_name", report_name])
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+                
+                if result.returncode == 0:
+                    compliance_data = json.loads(result.stdout)
+                    
+                    # Cache the result
+                    self.cache_manager.save_to_cache(cache_file, compliance_data)
+                    print(f"Cached compliance report: {cache_file}")
+                    
+                    return compliance_data
+                else:
+                    error_output = result.stderr
+                    if '429' in error_output or 'Rate Limit' in error_output:
+                        if attempt < max_retries - 1:
+                            wait_time = backoff_intervals[attempt]
+                            print(f"      ⏳ Rate limit hit (CLI compliance report {account_id}), waiting {wait_time}s (retry {attempt + 1}/{max_retries})")
+                            time.sleep(wait_time)
+                        else:
+                            print(f"      ❌ Failed to retrieve compliance report {account_id} after {max_retries} attempts")
+                            return {}
+                    else:
+                        print(f"CLI error retrieving compliance report: {result.stderr}")
+                        return {}
+            
+            except subprocess.TimeoutExpired:
+                print(f"CLI timeout retrieving compliance report (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    wait_time = backoff_intervals[attempt]
+                    time.sleep(wait_time)
+                else:
+                    return {}
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error retrieving compliance report: {e}")
+                return {}
+            except Exception as e:
+                print(f"Error retrieving compliance report: {e}")
                 return {}
         
-        except subprocess.TimeoutExpired:
-            print("CLI timeout retrieving compliance report")
-            return {}
-        except json.JSONDecodeError as e:
-            print(f"JSON parsing error retrieving compliance report: {e}")
-            return {}
-        except Exception as e:
-            print(f"Error retrieving compliance report: {e}")
-            return {}
+        return {}
     
     def parse_compliance_report_data(self, compliance_data: Dict[str, Any], policy_details: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Parse compliance report data and extract relevant fields for Excel output."""

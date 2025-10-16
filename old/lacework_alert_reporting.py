@@ -1338,7 +1338,7 @@ def main():
     # Parse command-line arguments
     args = parse_arguments()
     
-    print("=== Lacework Alert Reporting Tool ===")
+    print("=== Lacework API Reporting Tool ===")
     print(f"API Key: {args.api_key_file}")
     
     # Determine date range

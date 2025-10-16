@@ -1,4 +1,4 @@
-# Lacework Alert Reporting Tool
+# Lacework API Reporting Tool
 
 This tool retrieves Lacework compliance alerts and generates Excel reports with policy details and remediation information.
 

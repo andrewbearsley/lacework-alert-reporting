@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 # Add the modules directory to the Python path
-script_dir = Path(__file__).parent
+    script_dir = Path(__file__).parent
 modules_dir = script_dir / "modules"
 sys.path.insert(0, str(modules_dir))
 

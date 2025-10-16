@@ -2,6 +2,7 @@
 Resource tag retrieval functionality for Lacework Alert Reporting.
 """
 import time
+import re
 from typing import Dict, List, Set
 from datetime import datetime
 from .cache_manager import CacheManager, extract_account_id_from_arn, extract_resource_types_from_arns, map_aws_service_to_lacework_types
@@ -38,6 +39,11 @@ class TagRetriever:
                 'primary': 'ec2:vpc',
                 'secondary': None,
                 'description': 'Security Group -> VPC'
+            },
+            'ec2:vpc-endpoint': {
+                'primary': 'ec2:security-group',
+                'secondary': 'ec2:vpc',
+                'description': 'VPC Endpoint -> Security Group -> VPC'
             }
         }
     
@@ -94,6 +100,113 @@ class TagRetriever:
         
         return 'N/A'
     
+    def _infer_tags_from_name(self, arn: str, account_name: str = None) -> str:
+        """
+        Infer basic tags from resource naming conventions as a last resort fallback.
+        Returns tags with [INFERRED] prefix to indicate they are derived, not actual AWS tags.
+        
+        Args:
+            arn: Resource ARN
+            account_name: AWS account name from cloudDetails
+            
+        Returns:
+            Formatted tag string with inferred values, or 'N/A' if nothing can be inferred
+        """
+        inferred_tags = []
+        
+        # Extract resource name/ID from ARN
+        resource_name = None
+        if ':s3:::' in arn:
+            # S3 bucket: arn:aws:s3:::bucket-name
+            resource_name = arn.split(':::')[-1]
+        elif '/' in arn:
+            # Other resources: arn:aws:service:region:account:resource-type/resource-id
+            resource_name = arn.split('/')[-1]
+        elif ':' in arn:
+            # Fallback: take last colon-separated part
+            parts = arn.split(':')
+            if len(parts) > 5:
+                resource_name = parts[-1]
+        
+        if not resource_name:
+            return 'N/A'
+        
+        resource_name_lower = resource_name.lower()
+        
+        # Pattern 1: Environment extraction (sit1, sit2, uat1, uat2, prod, dev, etc.)
+        env_match = re.search(r'-(sit|uat|prod|dev|stg|staging|test)(\d+)?-', resource_name_lower)
+        if env_match:
+            env_base = env_match.group(1)
+            env_num = env_match.group(2) if env_match.group(2) else ''
+            full_env = f"{env_base}{env_num}"
+            
+            # Map to standard environment types
+            env_type_map = {
+                'sit': 'non-prod',
+                'uat': 'uat', 
+                'dev': 'non-prod',
+                'test': 'non-prod',
+                'stg': 'non-prod',
+                'staging': 'non-prod',
+                'prod': 'prod'
+            }
+            env_type = env_type_map.get(env_base, 'non-prod')
+            
+            inferred_tags.append(f"app-environment:{full_env}")
+            inferred_tags.append(f"unsw:environment:{env_type}")
+        
+        # Pattern 2: Service/application name extraction (e.g., "sims-", "banner-", etc.)
+        # Look for known service names anywhere in the resource name, not just at the start
+        known_services = ['sims', 'banner', 'myunsw', 'moodle', 'opal', 'nucleus']  # Add more as needed
+        service_found = None
+        
+        for service in known_services:
+            if service in resource_name_lower:
+                service_found = service
+                break
+        
+        if not service_found:
+            # Fallback: try to extract from the beginning of the name
+            service_match = re.match(r'^([a-z][a-z0-9-]+?)-', resource_name_lower)
+            if service_match:
+                service_name = service_match.group(1)
+                # Only use if it's a reasonable service name (2-20 chars, not generic/infrastructure terms)
+                if 2 <= len(service_name) <= 20 and service_name not in ['aws', 'ec2', 'rds', 's3', 'cdk', 'stacksets', 'cloudformation', 'lambda']:
+                    service_found = service_name
+        
+        if service_found:
+            inferred_tags.append(f"unsw:service:{service_found}")
+        
+        # Pattern 3: Extract from account name if provided
+        if account_name:
+            account_name_lower = account_name.lower()
+            
+            # Extract service from account name (e.g., "unsw-corp-sims-preprod" -> "sims")
+            if 'corp' in account_name_lower or 'prod' in account_name_lower:
+                parts = account_name_lower.split('-')
+                for i, part in enumerate(parts):
+                    if part in ['corp', 'enterprise', 'shared']:
+                        # Service is usually after corp/enterprise
+                        if i + 1 < len(parts) and parts[i + 1] not in ['preprod', 'prod', 'dev', 'uat', 'sit']:
+                            service_from_account = parts[i + 1]
+                            # Only add if we haven't already inferred a service
+                            if not any(tag.startswith('unsw:service:') for tag in inferred_tags):
+                                inferred_tags.append(f"unsw:service:{service_from_account}")
+                        break
+            
+            # Infer domain from account patterns
+            if 'corp' in account_name_lower or 'enterprise' in account_name_lower:
+                inferred_tags.append("unsw:domain:productionServices")
+            elif 'shared' in account_name_lower:
+                inferred_tags.append("unsw:domain:sharedServices")
+        
+        if not inferred_tags:
+            return 'N/A'
+        
+        # Format tags with [INFERRED] marker
+        tag_str = ', '.join(inferred_tags)
+        return f"[INFERRED] {tag_str}"
+    
     def _extract_related_arn(self, arn: str, resource_type: str, resource_config: dict, related_type: str, account_id: str) -> str:
         """Extract ARN of related resource based on type."""
         if isinstance(resource_config, str):
@@ -112,6 +225,13 @@ class TagRetriever:
                 security_groups = vpc_config.get('SecurityGroupIds', [])
                 if security_groups:
                     return f"arn:aws:ec2:ap-southeast-2:{account_id}:security-group/{security_groups[0]}"
+            elif resource_type == 'ec2:vpc-endpoint':
+                # VPC endpoint security groups are in Groups array
+                groups = resource_config.get('Groups', [])
+                if groups and isinstance(groups, list) and len(groups) > 0:
+                    group_id = groups[0].get('GroupId') if isinstance(groups[0], dict) else groups[0]
+                    if group_id:
+                        return f"arn:aws:ec2:ap-southeast-2:{account_id}:security-group/{group_id}"
         
         elif related_type == 'ec2:subnet':
             # For RDS, get subnet from resource config
@@ -155,12 +275,15 @@ class TagRetriever:
         
         return 'N/A'
     
-    def get_resource_tags_by_type(self, resource_arns: List[str], start_date: str = None, end_date: str = None) -> Dict[str, str]:
+    def get_resource_tags_by_type(self, resource_arns: List[str], start_date: str = None, end_date: str = None, apply_fallback: bool = True) -> Dict[str, str]:
         """
         Retrieve tags for resources, optimized by resource type.
         
         Args:
             resource_arns: List of resource ARNs to get tags for
+            start_date: Start date for date-based caching
+            end_date: End date for date-based caching
+            apply_fallback: If True, apply fallback strategies for resources with N/A tags
             
         Returns:
             Dictionary mapping ARNs to formatted tag strings
@@ -221,9 +344,9 @@ class TagRetriever:
             cached_data = self.cache_manager.load_from_cache(cache_file)
             if cached_data and arn in cached_data.get('resource_tags', {}):
                 tags_result[arn] = cached_data['resource_tags'][arn]
-                print(f"    Found {arn} in cache: {tags_result[arn]}")
-                # If tags are N/A, mark for fallback strategy
-                if tags_result[arn] == 'N/A':
+                # print(f"    Found {arn} in cache: {tags_result[arn]}")
+                # If tags are N/A and fallback is enabled, mark for fallback strategy
+                if apply_fallback and tags_result[arn] == 'N/A':
                     print(f"    Marking {arn} for fallback strategy")
                     uncached_resources.append(arn)
             elif cached_data and 'all_resources' in cached_data:
@@ -246,8 +369,8 @@ class TagRetriever:
                         individual_cached_data = self.cache_manager.load_from_cache(individual_cache_file)
                         if individual_cached_data and arn in individual_cached_data.get('resource_tags', {}):
                             tags_result[arn] = individual_cached_data['resource_tags'][arn]
-                            # If tags are N/A, mark for fallback strategy
-                            if tags_result[arn] == 'N/A':
+                            # If tags are N/A and fallback is enabled, mark for fallback strategy
+                            if apply_fallback and tags_result[arn] == 'N/A':
                                 uncached_resources.append(arn)
                         elif individual_cached_data and 'all_resources' in individual_cached_data:
                             # Try to find in individual cache's all_resources
@@ -255,8 +378,8 @@ class TagRetriever:
                                 if self._match_resource_to_arn(resource_id, [arn]):
                                     tags_result[arn] = resource_info.get('formatted_tags', 'N/A')
                                     found_in_all_resources = True
-                                    # If tags are N/A, mark for fallback strategy
-                                    if tags_result[arn] == 'N/A':
+                                    # If tags are N/A and fallback is enabled, mark for fallback strategy
+                                    if apply_fallback and tags_result[arn] == 'N/A':
                                         uncached_resources.append(arn)
                                     break
                         
@@ -410,29 +533,59 @@ class TagRetriever:
                             "returns": ["resourceId", "resourceType", "resourceConfig", "resourceTags"]
                         }
                     
-                    try:
-                        response = self.client_wrapper.search_resources(search_request)
-                        # Handle both dict and generator responses
-                        if hasattr(response, 'get'):
-                            type_data = response.get('data', [])
-                        else:
-                            # Convert generator to list
-                            response_items = list(response)
-                            if response_items and isinstance(response_items[0], dict) and 'data' in response_items[0]:
-                                # Extract data from the first item
-                                type_data = response_items[0]['data']
-                                if isinstance(type_data, str):
-                                    import json
-                                    type_data = json.loads(type_data)
+                    max_retries = 5
+                    backoff_intervals = [60, 60, 60, 60, 60]  # Lacework requires 60s between rate-limited requests
+                    
+                    for attempt in range(max_retries):
+                        try:
+                            if attempt > 0:
+                                print(f"      → Attempt {attempt + 1}/{max_retries} for {resource_type}")
+                            response = self.client_wrapper.search_resources(search_request)
+                            # Handle both dict and generator responses
+                            total_rows = None
+                            if hasattr(response, 'get'):
+                                type_data = response.get('data', [])
+                                # Check for paging info
+                                paging = response.get('paging', {})
+                                if paging:
+                                    total_rows = paging.get('totalRows', len(type_data))
                             else:
-                                type_data = response_items
-                        
-                        print(f"      Found {len(type_data)} resources of type {resource_type}")
-                        all_resources.extend(type_data)
-                        
-                    except Exception as e:
-                        print(f"      API call failed for {resource_type}: {e}")
-                        continue
+                                # Convert generator to list
+                                response_items = list(response)
+                                if response_items and isinstance(response_items[0], dict) and 'data' in response_items[0]:
+                                    # Extract data from the first item
+                                    type_data = response_items[0]['data']
+                                    if isinstance(type_data, str):
+                                        import json
+                                        type_data = json.loads(type_data)
+                                    # Check for paging in response
+                                    paging = response_items[0].get('paging', {})
+                                    if paging:
+                                        total_rows = paging.get('totalRows', len(type_data))
+                                else:
+                                    type_data = response_items
+                            
+                            # Report on results
+                            if total_rows and total_rows > len(type_data):
+                                print(f"      Found {len(type_data)} resources of type {resource_type} (totalRows: {total_rows}, TRUNCATED)")
+                            else:
+                                print(f"      Found {len(type_data)} resources of type {resource_type}")
+                            
+                            all_resources.extend(type_data)
+                            break  # Success, exit retry loop
+                            
+                        except Exception as e:
+                            error_str = str(e)
+                            if '429' in error_str or 'Rate Limit' in error_str:
+                                if attempt < max_retries - 1:
+                                    wait_time = backoff_intervals[attempt]
+                                    print(f"      ⏳ Rate limit hit for {resource_type}, waiting {wait_time}s (retry {attempt + 1}/{max_retries})")
+                                    time.sleep(wait_time)
+                                else:
+                                    print(f"      ❌ API call failed for {resource_type} after {max_retries} attempts with {sum(backoff_intervals[:max_retries-1])}s total wait")
+                            else:
+                                print(f"      API call failed for {resource_type}: {e}")
+                                break  # Non-rate-limit error, don't retry
                 
                 actual_data = all_resources
                 print(f"    Total resources collected: {len(actual_data)}")
@@ -493,7 +646,8 @@ class TagRetriever:
                                     'resource_type': item.get('resourceType'),
                                     'tags': tags,
                                     'formatted_tags': formatted_tags,
-                                    'resource_config': resource_config
+                                    'resource_config': resource_config,
+                                    'cloud_details': item.get('cloudDetails', {})
                                 }
                             else:
                                 # Already cached - only update if new data is more complete
@@ -576,6 +730,11 @@ class TagRetriever:
                                     subnet_id = resource_config['SubnetId']
                                     arn = f"arn:aws:ec2:ap-southeast-2:{account_id}:subnet/{subnet_id}"
                                     account_tags_data['resource_tags'][arn] = formatted_tags
+                                # For VPC Endpoints
+                                elif 'VpcEndpointId' in resource_config:
+                                    vpc_endpoint_id = resource_config['VpcEndpointId']
+                                    arn = f"arn:aws:ec2:ap-southeast-2:{account_id}:vpc-endpoint/{vpc_endpoint_id}"
+                                    account_tags_data['resource_tags'][arn] = formatted_tags
                             
                             # Handle VPCs separately (not in elif chain)
                             if resource_config and isinstance(resource_config, dict) and item.get('resourceType') == 'ec2:vpc':
@@ -630,7 +789,7 @@ class TagRetriever:
                 if tags_result.get(arn) == 'N/A':
                     resource_type = self._get_resource_type_from_arn(arn)
                     if resource_type in self.fallback_strategies:
-                        print(f"    Applying fallback strategy for {resource_type}: {self.fallback_strategies[resource_type]['description']}")
+                        # print(f"    Applying fallback strategy for {resource_type}: {self.fallback_strategies[resource_type]['description']}")
                         # Find the resource in our cached data to get resource_config
                         resource_config = None
                         for cached_resource_id, cached_info in account_tags_data.get('all_resources', {}).items():
@@ -645,7 +804,8 @@ class TagRetriever:
                         
                         if resource_config:
                             fallback_tags = self._get_related_resource_tags(arn, resource_type, resource_config)
-                            print(f"    Fallback tags for {arn}: {fallback_tags}")
+                            if fallback_tags != 'N/A':
+                                print(f"    ✓ Fallback applied for {resource_type}")
                             tags_result[arn] = fallback_tags
                         else:
                             print(f"    No resource_config found for {arn}")
@@ -680,7 +840,7 @@ class TagRetriever:
                 for arn in account_fallback_resources:
                     resource_type = self._get_resource_type_from_arn(arn)
                     if resource_type in self.fallback_strategies:
-                        print(f"    Applying fallback strategy for {resource_type}: {self.fallback_strategies[resource_type]['description']}")
+                        # print(f"    Applying fallback strategy for {resource_type}: {self.fallback_strategies[resource_type]['description']}")
                         
                         # Get the cache file for this specific resource type
                         cache_file = self.cache_manager.get_resource_cache_file_path('account-tags', account_id, resource_type, start_date, end_date)
@@ -698,12 +858,56 @@ class TagRetriever:
                             
                             if resource_config:
                                 fallback_tags = self._get_related_resource_tags(arn, resource_type, resource_config, account_id, start_date, end_date)
-                                print(f"    Fallback tags for {arn}: {fallback_tags}")
+                                if fallback_tags != 'N/A':
+                                    print(f"    ✓ Fallback applied for {resource_type}")
                                 tags_result[arn] = fallback_tags
                             else:
                                 print(f"    No resource_config found for {arn}")
                         else:
                             print(f"    No cached data found for {resource_type}")
+        
+        # Final fallback: Name-based inference for remaining N/A resources
+        name_inference_count = 0
+        account_names = {}  # Cache account names from API responses
+        
+        for arn in resource_arns:
+            if tags_result.get(arn) == 'N/A':
+                account_id = extract_account_id_from_arn(arn)
+                if not account_id:
+                    # S3 buckets don't have account ID in ARN - skip name inference for now
+                    continue
+                
+                # Get account name from cloudDetails if we haven't already
+                if account_id not in account_names:
+                    # Try to find account name in any cached resource for this account
+                    for resource_type in ['s3:bucket', 'ec2:instance', 'lambda:function', 'ec2:vpc']:
+                        cache_file = self.cache_manager.get_resource_cache_file_path('account-tags', account_id, resource_type, start_date, end_date)
+                        if cache_file and cache_file.exists():
+                            import json
+                            try:
+                                with open(cache_file, 'r') as f:
+                                    cached_data = json.load(f)
+                                    # Look for cloudDetails.accountName in the first resource
+                                    for resource_info in cached_data.get('all_resources', {}).values():
+                                        if 'cloud_details' in resource_info:
+                                            account_name = resource_info['cloud_details'].get('accountName')
+                                            if account_name:
+                                                account_names[account_id] = account_name
+                                                break
+                                    if account_id in account_names:
+                                        break
+                            except:
+                                pass
+                
+                # Infer tags from resource name
+                account_name = account_names.get(account_id)
+                inferred = self._infer_tags_from_name(arn, account_name)
+                if inferred != 'N/A':
+                    tags_result[arn] = inferred
+                    name_inference_count += 1
+        
+        if name_inference_count > 0:
+            print(f"Applied name-based inference for {name_inference_count} resources")
         
         duration_total = time.time() - start_time_total
         print(f"=== TAG RETRIEVAL SUMMARY ===")
@@ -736,6 +940,8 @@ class TagRetriever:
                     return 'ec2:subnet'
                 elif 'instance/' in resource_name:
                     return 'ec2:instance'
+                elif 'vpc-endpoint/' in resource_name:
+                    return 'ec2:vpc-endpoint'
             elif service == 'rds':
                 if 'db/' in resource_name:
                     return 'rds:db'
@@ -856,6 +1062,17 @@ class TagRetriever:
                                 if group_id == arn_sg_id:
                                     return arn
                             elif group_id == arn_resource_name:
+                                return arn
+                        
+                        # For VPC Endpoints, try to match using VpcEndpointId from resource config
+                        if 'VpcEndpointId' in resource_config:
+                            vpc_endpoint_id = resource_config['VpcEndpointId']
+                            # Extract VPC endpoint ID from ARN (e.g., "vpc-endpoint/vpce-123" -> "vpce-123")
+                            if '/' in arn_resource_name:
+                                arn_vpce_id = arn_resource_name.split('/')[-1]
+                                if vpc_endpoint_id == arn_vpce_id:
+                                    return arn
+                            elif vpc_endpoint_id == arn_resource_name:
                                 return arn
                     
                     # Fallback to direct comparison

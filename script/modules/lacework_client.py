@@ -21,14 +21,14 @@ class LaceworkClientWrapper:
         """Get the underlying Lacework client."""
         return self.client
     
-    def make_api_call_with_retry(self, api_call, max_retries=3, base_delay=1):
+    def make_api_call_with_retry(self, api_call, max_retries=5, backoff_intervals=None):
         """
-        Make an API call with exponential backoff retry logic.
+        Make an API call with progressive backoff retry logic.
         
         Args:
             api_call: Function that makes the API call
             max_retries: Maximum number of retry attempts
-            base_delay: Base delay in seconds for exponential backoff
+            backoff_intervals: List of delays in seconds for each retry [10, 20, 30, 60, 120]
             
         Returns:
             API response data
@@ -36,22 +36,27 @@ class LaceworkClientWrapper:
         Raises:
             Exception: If all retry attempts fail
         """
-        for attempt in range(max_retries + 1):
+        if backoff_intervals is None:
+            backoff_intervals = [60, 60, 60, 60, 60]  # Lacework requires 60s between rate-limited requests
+        
+        for attempt in range(max_retries):
             try:
                 return api_call()
             except Exception as e:
-                if attempt == max_retries:
+                error_str = str(e)
+                is_rate_limit = '429' in error_str or 'Rate Limit' in error_str or (hasattr(e, 'response') and hasattr(e.response, 'status_code') and e.response.status_code == 429)
+                
+                if attempt == max_retries - 1:
                     raise e
                 
-                # Check if it's a rate limit error
-                if hasattr(e, 'response') and e.response.status_code == 429:
-                    delay = base_delay * (2 ** attempt)
-                    print(f"Rate limit hit, waiting {delay}s before retry {attempt + 1}/{max_retries}")
+                if is_rate_limit:
+                    delay = backoff_intervals[attempt] if attempt < len(backoff_intervals) else backoff_intervals[-1]
+                    print(f"      ⏳ Rate limit hit (SDK), waiting {delay}s (retry {attempt + 1}/{max_retries})")
                     time.sleep(delay)
                 else:
-                    # For other errors, wait a shorter time
-                    delay = base_delay
-                    print(f"API error, waiting {delay}s before retry {attempt + 1}/{max_retries}: {str(e)}")
+                    # For other errors, still retry with backoff
+                    delay = backoff_intervals[attempt] if attempt < len(backoff_intervals) else backoff_intervals[-1]
+                    print(f"      ⚠️ API error, waiting {delay}s (retry {attempt + 1}/{max_retries}): {str(e)[:100]}")
                     time.sleep(delay)
         
         raise Exception("Max retries exceeded")

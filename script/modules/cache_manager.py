@@ -34,6 +34,39 @@ class CacheManager:
         filename = generate_cache_filename(account_id, resource_type, start_date, end_date)
         return type_dir / filename
     
+    def get_account_inventory_cache_path(self, account_id: str, start_date: str = None, end_date: str = None) -> Path:
+        """Get cache file path for complete account inventory."""
+        inventory_dir = self.cache_dir / "account-inventory" / "aws"
+        inventory_dir.mkdir(parents=True, exist_ok=True)
+        
+        account_dir = inventory_dir / account_id
+        account_dir.mkdir(exist_ok=True)
+        
+        if start_date and end_date:
+            filename = f"{start_date}_to_{end_date}.json"
+        else:
+            filename = "complete_inventory.json"
+        
+        return account_dir / filename
+    
+    def get_account_compliance_cache_path(self, account_id: str, report_name: str, start_date: str = None, end_date: str = None) -> Path:
+        """Get cache file path for account compliance report."""
+        compliance_dir = self.cache_dir / "account-reports" / "aws"
+        compliance_dir.mkdir(parents=True, exist_ok=True)
+        
+        account_dir = compliance_dir / account_id
+        account_dir.mkdir(exist_ok=True)
+        
+        # Sanitize report name for filename
+        safe_report_name = report_name.replace(' ', '_').replace('/', '_')
+        
+        if start_date and end_date:
+            filename = f"{safe_report_name}_{start_date}_to_{end_date}.json"
+        else:
+            filename = f"{safe_report_name}.json"
+        
+        return account_dir / filename
+    
     def load_from_cache(self, cache_file: Path) -> Optional[Dict[str, Any]]:
         """Load data from cache file if it exists and is not expired."""
         if not cache_file.exists():

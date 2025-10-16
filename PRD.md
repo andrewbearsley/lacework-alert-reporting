@@ -1,11 +1,11 @@
 # Product Requirements Document (PRD)
-## Lacework Alert Reporting Tool
+## Lacework API Reporting Tool
 
 ---
 
 ## 1. Executive Summary
 
-The Lacework Alert Reporting Tool is a Python script that retrieves Lacework compliance alerts and generates CSV reports with policy details and remediation information.
+The Lacework API Reporting Tool is a Python script that retrieves Lacework compliance alerts and generates CSV reports with policy details and remediation information.
 
 ### Key Features
 - Retrieves compliance alerts with policy details and remediation steps
@@ -428,7 +428,7 @@ python script/lacework_alert_reporting.py -k api-key/my-api-key.json --clear-cac
 
 ## 11. Conclusion
 
-The Lacework Alert Reporting Tool successfully addresses the critical need for automated compliance analysis and alert reporting in complex multi-account cloud environments. The solution provides:
+The Lacework API Reporting Tool successfully addresses the critical need for automated compliance analysis and alert reporting in complex multi-account cloud environments. The solution provides:
 
 ### Key Achievements
 - **Complete Automation:** End-to-end workflow from alert retrieval to report generation

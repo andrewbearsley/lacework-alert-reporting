@@ -3,6 +3,7 @@ Alert processing functionality for Lacework Alert Reporting.
 """
 import subprocess
 import json
+import time
 from typing import List, Dict, Any
 from .cache_manager import CacheManager
 from .lacework_client import LaceworkClientWrapper
@@ -41,32 +42,48 @@ class AlertProcessor:
         if report_filter:
             cmd.extend(['--report', report_filter])
         
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            alerts_data = json.loads(result.stdout)
-            
-            # Handle both list and dict responses
-            if isinstance(alerts_data, list):
-                alerts_list = alerts_data
-            else:
-                alerts_list = alerts_data.get('data', [])
-            
-            # Filter for compliance alerts
-            compliance_alerts = [
-                alert for alert in alerts_list
-                if alert.get('derivedFields', {}).get('category') == 'Policy' and 
-                   alert.get('derivedFields', {}).get('sub_category') == 'Compliance'
-            ]
-            
-            print(f"Found {len(compliance_alerts)} compliance alerts out of {len(alerts_list)} total alerts")
-            return compliance_alerts
-            
-        except subprocess.CalledProcessError as e:
-            print(f"Error retrieving alerts: {e}")
-            return []
-        except json.JSONDecodeError as e:
-            print(f"Error parsing alert data: {e}")
-            return []
+        max_retries = 5
+        backoff_intervals = [60, 60, 60, 60, 60]  # Lacework requires 60s between rate-limited requests
+        
+        for attempt in range(max_retries):
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                alerts_data = json.loads(result.stdout)
+                
+                # Handle both list and dict responses
+                if isinstance(alerts_data, list):
+                    alerts_list = alerts_data
+                else:
+                    alerts_list = alerts_data.get('data', [])
+                
+                # Filter for compliance alerts
+                compliance_alerts = [
+                    alert for alert in alerts_list
+                    if alert.get('derivedFields', {}).get('category') == 'Policy' and 
+                       alert.get('derivedFields', {}).get('sub_category') == 'Compliance'
+                ]
+                
+                print(f"Found {len(compliance_alerts)} compliance alerts out of {len(alerts_list)} total alerts")
+                return compliance_alerts
+                
+            except subprocess.CalledProcessError as e:
+                error_output = e.stderr if hasattr(e, 'stderr') else str(e)
+                if '429' in error_output or 'Rate Limit' in error_output:
+                    if attempt < max_retries - 1:
+                        wait_time = backoff_intervals[attempt]
+                        print(f"      ⏳ Rate limit hit (CLI alert list), waiting {wait_time}s (retry {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"      ❌ Failed to retrieve alerts after {max_retries} attempts")
+                        return []
+                else:
+                    print(f"Error retrieving alerts: {e}")
+                    return []
+            except json.JSONDecodeError as e:
+                print(f"Error parsing alert data: {e}")
+                return []
+        
+        return []
     
     def get_alert_details(self, alert_ids: List[int]) -> List[Dict[str, Any]]:
         """
@@ -95,29 +112,45 @@ class AlertProcessor:
                 detailed_alerts.append(cached_data)
                 cached_count += 1
             else:
-                # Get from CLI
-                try:
-                    cmd = ['lacework', 'alert', 'show', str(alert_id), '--json']
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                    alert_data = json.loads(result.stdout)
-                    
-                    # Handle both direct alert data and wrapped in 'data' field
-                    if alert_data.get('data'):
-                        detailed_alerts.append(alert_data['data'])
-                        # Cache the result
-                        self.cache_manager.save_to_cache(cache_file, alert_data['data'])
-                    elif alert_data.get('alertId'):
-                        # Direct alert data
-                        detailed_alerts.append(alert_data)
-                        # Cache the result
-                        self.cache_manager.save_to_cache(cache_file, alert_data)
-                    else:
-                        print(f"Warning: Alert {alert_id} has no data or alertId field")
+                # Get from CLI with retry logic
+                max_retries = 5
+                backoff_intervals = [60, 60, 60, 60, 60]  # Lacework requires 60s between rate-limited requests
                 
-                except subprocess.CalledProcessError as e:
-                    print(f"Error retrieving alert {alert_id}: {e}")
-                except json.JSONDecodeError as e:
-                    print(f"Error parsing alert {alert_id} data: {e}")
+                for attempt in range(max_retries):
+                    try:
+                        cmd = ['lacework', 'alert', 'show', str(alert_id), '--json']
+                        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        alert_data = json.loads(result.stdout)
+                        
+                        # Handle both direct alert data and wrapped in 'data' field
+                        if alert_data.get('data'):
+                            detailed_alerts.append(alert_data['data'])
+                            # Cache the result
+                            self.cache_manager.save_to_cache(cache_file, alert_data['data'])
+                        elif alert_data.get('alertId'):
+                            # Direct alert data
+                            detailed_alerts.append(alert_data)
+                            # Cache the result
+                            self.cache_manager.save_to_cache(cache_file, alert_data)
+                        else:
+                            print(f"Warning: Alert {alert_id} has no data or alertId field")
+                        break  # Success
+                    
+                    except subprocess.CalledProcessError as e:
+                        error_output = e.stderr if hasattr(e, 'stderr') else str(e)
+                        if '429' in error_output or 'Rate Limit' in error_output:
+                            if attempt < max_retries - 1:
+                                wait_time = backoff_intervals[attempt]
+                                print(f"      ⏳ Rate limit hit (CLI alert {alert_id}), waiting {wait_time}s (retry {attempt + 1}/{max_retries})")
+                                time.sleep(wait_time)
+                            else:
+                                print(f"      ❌ Failed to retrieve alert {alert_id} after {max_retries} attempts")
+                        else:
+                            print(f"Error retrieving alert {alert_id}: {e}")
+                            break
+                    except json.JSONDecodeError as e:
+                        print(f"Error parsing alert {alert_id} data: {e}")
+                        break
         
         print(f"Found {cached_count} alerts already cached, {len(alert_ids) - cached_count} to retrieve from CLI")
         return detailed_alerts
@@ -149,21 +182,37 @@ class AlertProcessor:
                 policy_details[policy_id] = cached_data
                 cached_count += 1
             else:
-                # Get from CLI
-                try:
-                    cmd = ['lacework', 'policy', 'show', policy_id, '--json']
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                    policy_data = json.loads(result.stdout)
-                    
-                    if policy_data:
-                        policy_details[policy_id] = policy_data
-                        # Cache the result
-                        self.cache_manager.save_to_cache(cache_file, policy_data)
+                # Get from CLI with retry logic
+                max_retries = 5
+                backoff_intervals = [60, 60, 60, 60, 60]  # Lacework requires 60s between rate-limited requests
                 
-                except subprocess.CalledProcessError as e:
-                    print(f"Error retrieving policy {policy_id}: {e}")
-                except json.JSONDecodeError as e:
-                    print(f"Error parsing policy {policy_id} data: {e}")
+                for attempt in range(max_retries):
+                    try:
+                        cmd = ['lacework', 'policy', 'show', policy_id, '--json']
+                        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        policy_data = json.loads(result.stdout)
+                        
+                        if policy_data:
+                            policy_details[policy_id] = policy_data
+                            # Cache the result
+                            self.cache_manager.save_to_cache(cache_file, policy_data)
+                        break  # Success
+                    
+                    except subprocess.CalledProcessError as e:
+                        error_output = e.stderr if hasattr(e, 'stderr') else str(e)
+                        if '429' in error_output or 'Rate Limit' in error_output:
+                            if attempt < max_retries - 1:
+                                wait_time = backoff_intervals[attempt]
+                                print(f"      ⏳ Rate limit hit (CLI policy {policy_id}), waiting {wait_time}s (retry {attempt + 1}/{max_retries})")
+                                time.sleep(wait_time)
+                            else:
+                                print(f"      ❌ Failed to retrieve policy {policy_id} after {max_retries} attempts")
+                        else:
+                            print(f"Error retrieving policy {policy_id}: {e}")
+                            break
+                    except json.JSONDecodeError as e:
+                        print(f"Error parsing policy {policy_id} data: {e}")
+                        break
         
         print(f"Found {cached_count} policies already cached, {len(policy_ids) - cached_count} to retrieve from API")
         return policy_details

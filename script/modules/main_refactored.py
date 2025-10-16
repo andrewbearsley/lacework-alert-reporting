@@ -153,10 +153,10 @@ def main():
     policy_details = alert_processor.get_policy_details(all_policy_ids)
     print(f"Retrieved {len(policy_details)} policy details")
     
-    # Step 5: Get all unique resource ARNs and retrieve tags from inventory
+    # Step 5: Get all unique resource ARNs (from both alerts and compliance)
     if not args.no_tags:
         print("-"*80)
-        print("\033[1;36mStep 5: Retrieving resource tags from Lacework inventory\033[0m")
+        print("\033[1;36mStep 5: Retrieving resource tags\033[0m")
         
         all_resource_arns = set()
         
@@ -171,15 +171,7 @@ def main():
         print(f"Found {len(all_resource_arns)} unique resource ARNs across alerts and compliance")
         
         if all_resource_arns:
-            # This will:
-            # 1. Group resources by AWS account
-            # 2. For each account:
-            #    - Identify required resource types
-            #    - Query Lacework inventory for those types
-            #    - Extract tags from resourceTags or resourceConfig
-            # 3. Return tags for resources found in inventory (NO fallback processing here)
-            print("Querying Lacework inventory by account and resource type...")
-            resource_tags = tag_retriever.get_resource_tags_by_type(list(all_resource_arns), start_date, end_date, apply_fallback=False)
+            resource_tags = tag_retriever.get_resource_tags_by_type(list(all_resource_arns), start_date, end_date)
         else:
             resource_tags = {}
     else:
@@ -194,12 +186,19 @@ def main():
     print("-"*80)
     print("\033[1;36mStep 6: Enriching data with policies and tags\033[0m")
     
-    # Enrich alerts with policies
+    # Enrich alerts
     print("Enriching alerts with policy details...")
     enriched_alerts = alert_processor.enrich_alerts_with_policy_details(detailed_alerts, policy_details)
-    print(f"  ✓ Enriched {len(enriched_alerts)} alerts with policy details")
+    print(f"  Enriched {len(enriched_alerts)} alerts with policy details")
     
-    # Enrich compliance with policies
+    if not args.no_tags:
+        print("Applying tags to alerts...")
+        apply_tags_to_items(enriched_alerts, resource_tags)
+    else:
+        for alert in enriched_alerts:
+            alert['tags'] = 'N/A'
+    
+    # Enrich compliance
     if compliance_data:
         print("Enriching compliance data with policy details...")
         for item in compliance_data:
@@ -209,61 +208,21 @@ def main():
                 item['policy_title'] = policy_info.get('policy_name', item.get('policy_title', 'Unknown'))
                 item['description'] = policy_info.get('description', item.get('description', 'N/A'))
                 item['remediation_steps'] = policy_info.get('remediation', item.get('remediation_steps', 'N/A'))
-        print(f"  ✓ Enriched {len(compliance_data)} compliance items with policy details")
-    
-    # Apply tags from Step 5
-    if not args.no_tags:
-        print("Applying direct tags from inventory...")
-        all_items = enriched_alerts + compliance_data
-        apply_tags_to_items(all_items, resource_tags)
+        print(f"  Enriched {len(compliance_data)} compliance items with policy details")
         
-        # Count how many items still have N/A tags (need fallback)
-        na_count = sum(1 for item in all_items if item.get('tags') == 'N/A')
-        print(f"  ✓ Applied {len(all_items) - na_count} direct tags, {na_count} resources need fallback enrichment")
-        
-        # Apply fallback strategies for resources still with N/A tags
-        if na_count > 0:
-            print("-"*80)
-            print("\033[1;36mStep 7: Applying fallback tag strategies for untagged resources\033[0m")
-            
-            # Collect ARNs that still need tags
-            arns_needing_fallback = []
-            for item in all_items:
-                if item.get('tags') == 'N/A':
-                    arns = extract_arns_from_resource_field(item.get('resource', ''))
-                    arns_needing_fallback.extend(arns)
-            
-            print(f"Processing {len(arns_needing_fallback)} untagged resources...")
-            
-            # Get fallback tags (this will use fallback strategies and name-based inference)
-            # Fallback strategies:
-            # - Lambda → Security Group → IAM Role → VPC
-            # - ELB → Security Group → VPC
-            # - VPC Endpoint → Security Group → VPC
-            # - Name-based inference (environment, service, domain from resource name)
-            if arns_needing_fallback:
-                print("Applying fallback strategies (related resources + name-based inference)...")
-                fallback_tags = tag_retriever.get_resource_tags_by_type(arns_needing_fallback, start_date, end_date)
-                
-                # Apply fallback tags
-                apply_tags_to_items(all_items, fallback_tags)
-                
-                # Count final results
-                still_na = sum(1 for item in all_items if item.get('tags') == 'N/A')
-                fallback_applied = na_count - still_na
-                print(f"  ✓ Applied {fallback_applied} fallback tags, {still_na} resources remain untagged")
-    else:
-        for alert in enriched_alerts:
-            alert['tags'] = 'N/A'
-        for item in compliance_data:
-            item['tags'] = 'N/A'
+        if not args.no_tags:
+            print("Applying tags to compliance items...")
+            apply_tags_to_items(compliance_data, resource_tags)
+        else:
+            for item in compliance_data:
+                item['tags'] = 'N/A'
     
     # ============================================================================
     # PHASE 3: OUTPUT
     # ============================================================================
     
     print("-"*80)
-    print("\033[1;36mStep 8: Writing Excel output\033[0m")
+    print("\033[1;36mStep 7: Writing Excel output\033[0m")
     output_dir = get_output_directory()
     output_filename = get_output_filename(start_date, end_date, args)
     output_path = output_dir / output_filename
@@ -307,4 +266,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
