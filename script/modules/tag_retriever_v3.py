@@ -38,11 +38,24 @@ class TagRetrieverV3:
         """
         print(f"Getting tags for {len(resource_arns)} resources in account {account_id}")
         
-        # Get account fallback information
-        fallback_info = self._get_account_fallback_info(account_id, account_name)
-        
-        # Get inventory for the account
+        # Get inventory for the account FIRST
         inventory = self.inventory_retriever.get_account_inventory(account_id, account_name)
+        
+        # Get account fallback information (now that we have inventory)
+        # Retry logic for corrupted inventory files
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                fallback_info = self._get_account_fallback_info(account_id, account_name)
+                break
+            except FileNotFoundError as e:
+                if "Corrupted inventory file" in str(e) and attempt < max_retries - 1:
+                    print(f"   🔄 Retrying after corrupted file cleanup (attempt {attempt + 2}/{max_retries})")
+                    # Force refresh inventory
+                    inventory = self.inventory_retriever.get_account_inventory(account_id, account_name, force_refresh=True)
+                    continue
+                else:
+                    raise
         
         # Get resources by ARNs from inventory
         inventory_resources = self.inventory_retriever.get_resources_by_arns(account_id, resource_arns)
@@ -104,20 +117,46 @@ class TagRetrieverV3:
             # Resource found but has no tags - use fallback
             return self._create_fallback_tags(arn, fallback_info, reason="no_tags_in_inventory")
         
-        # Resource has tags - return them
+        # Resource has tags - check if we need partial fallback for missing ownership tags
+        technical_owner = resource_tags.get('unsw:technical-owner')
+        business_owner = resource_tags.get('unsw:business-owner')
+        
+        # Determine if we need partial fallback
+        needs_partial_fallback = False
+        partial_fallback_reasons = []
+        
+        if not technical_owner and fallback_info.get('default_technical_owner'):
+            technical_owner = fallback_info['default_technical_owner'][0]
+            needs_partial_fallback = True
+            partial_fallback_reasons.append('missing_technical_owner')
+        
+        if not business_owner and fallback_info.get('default_business_owner'):
+            business_owner = fallback_info['default_business_owner'][0]
+            needs_partial_fallback = True
+            partial_fallback_reasons.append('missing_business_owner')
+        
+        # Determine tag source
+        if needs_partial_fallback:
+            tag_source = 'partial_fallback'
+            fallback_reason = ', '.join(partial_fallback_reasons)
+        else:
+            tag_source = 'inventory'
+            fallback_reason = None
+        
         return {
             'arn': arn,
             'resource_id': resource.get('resourceId'),
             'resource_type': resource.get('resourceType'),
             'has_tags': True,
-            'used_fallback': False,
-            'fallback_reason': None,
+            'used_fallback': needs_partial_fallback,
+            'fallback_reason': fallback_reason,
+            'tag_source': tag_source,
             'tags': resource_tags,
             'tag_count': len(resource_tags),
             
-            # Extract key ownership information
-            'technical_owner': resource_tags.get('unsw:technical-owner'),
-            'business_owner': resource_tags.get('unsw:business-owner'),
+            # Extract key ownership information (with partial fallback applied)
+            'technical_owner': technical_owner,
+            'business_owner': business_owner,
             'billing_project': resource_tags.get('unsw:billing-project-id'),
             'environment': resource_tags.get('unsw:environment'),
             'project_name': resource_tags.get('customProjectName'),
@@ -169,6 +208,7 @@ class TagRetrieverV3:
             'has_tags': False,
             'used_fallback': True,
             'fallback_reason': reason,
+            'tag_source': 'fallback',
             'tags': fallback_tags,
             'tag_count': len(fallback_tags),
             

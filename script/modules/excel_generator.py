@@ -92,11 +92,11 @@ class ExcelGenerator:
             'Business Owner', 'Environment', 'Tag Source'
         ]
         
-        # Write headers
+        # Write headers with blue background and white text
         for col, fieldname in enumerate(fieldnames, 1):
             cell = ws.cell(row=1, column=col, value=fieldname)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+            cell.font = Font(bold=True, color="FFFFFF")  # White text
+            cell.fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")  # Blue background
             cell.alignment = Alignment(horizontal="center")
         
         # Sort compliance data by Severity, Policy Title, Account, then Resource
@@ -141,6 +141,11 @@ class ExcelGenerator:
                         cell.hyperlink = link_value
                         cell.font = Font(color="0000FF", underline="single")
                         cell.value = link_value  # Show the actual URL
+        
+        # Add auto-filter to the data range
+        last_row = len(sorted_compliance_data) + 1  # +1 for header row
+        last_col_letter = get_column_letter(len(fieldnames))
+        ws.auto_filter.ref = f"A1:{last_col_letter}{last_row}"
         
         # Auto-adjust column widths
         self._auto_adjust_columns(ws)

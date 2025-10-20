@@ -57,7 +57,9 @@ class ComplianceProcessorV2:
         
         # Apply account filtering if specified
         if aws_account_filter:
-            aws_accounts = [acc for acc in aws_accounts if acc['account_id'] == aws_account_filter]
+            # Handle comma-separated account IDs
+            filter_accounts = [acc.strip() for acc in aws_account_filter.split(',')]
+            aws_accounts = [acc for acc in aws_accounts if acc['account_id'] in filter_accounts]
             print(f"Filtered to {len(aws_accounts)} accounts matching {aws_account_filter}")
         
         print(f"Processing {len(aws_accounts)} AWS accounts...")

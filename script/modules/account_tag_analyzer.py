@@ -65,12 +65,14 @@ class AccountTagAnalyzer:
         Returns:
             Dict containing fallback ownership and environment information
         """
-        # Load account inventory - try different date ranges
+        # Load account inventory - try different date ranges and complete inventory
         inventory_path = None
         possible_paths = [
             self.cache_manager.get_account_inventory_cache_path(account_id, "2025-10-20", "2025-10-20"),
             self.cache_manager.get_account_inventory_cache_path(account_id, "2025-10-16", "2025-10-16"),
             self.cache_manager.get_account_inventory_cache_path(account_id, "2025-10-09", "2025-10-15"),
+            # Also try complete inventory path (no date parameters)
+            self.cache_manager.get_account_inventory_cache_path(account_id),
         ]
         
         for path in possible_paths:
@@ -81,8 +83,22 @@ class AccountTagAnalyzer:
         if not inventory_path or not os.path.exists(inventory_path):
             raise FileNotFoundError(f"No inventory found for account {account_id}")
         
-        with open(inventory_path, 'r') as f:
-            inventory_data = json.load(f)
+        try:
+            with open(inventory_path, 'r') as f:
+                inventory_data = json.load(f)
+        except json.JSONDecodeError as e:
+            # Handle corrupted JSON files
+            print(f"⚠️  Corrupted inventory file for account {account_id}: {e}")
+            print(f"   Attempting to delete corrupted file: {inventory_path}")
+            try:
+                if os.path.exists(inventory_path):
+                    os.remove(inventory_path)
+                    print(f"   ✅ Corrupted file deleted successfully")
+                else:
+                    print(f"   ℹ️  File already removed")
+            except Exception as delete_error:
+                print(f"   ⚠️  Could not delete corrupted file: {delete_error}")
+            raise FileNotFoundError(f"Corrupted inventory file for account {account_id}, please retry")
         
         resources = inventory_data.get('resources', [])
         

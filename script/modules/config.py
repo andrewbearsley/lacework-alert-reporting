@@ -144,6 +144,13 @@ def get_output_filename(start_date, end_date, args):
         return args.output_file
     
     date_str = f"{start_date}_to_{end_date}"
+    
+    # Include compliance report name in filename if specified
+    if hasattr(args, 'compliance_report') and args.compliance_report:
+        # Clean the report name for filename (remove spaces, special chars)
+        report_name = args.compliance_report.replace(' ', '-').replace('(', '').replace(')', '')
+        return f"lacework_alerts_{date_str}_{report_name}.xlsx"
+    
     return f"lacework_alerts_{date_str}.xlsx"
 
 
