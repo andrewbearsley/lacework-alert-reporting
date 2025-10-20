@@ -88,7 +88,8 @@ class ExcelGenerator:
         # Define fieldnames
         fieldnames = [
             'Policy ID', 'Policy Title', 'Description', 'Remediation Steps', 'Severity',
-            'Resource', 'Region', 'Account', 'Tags'
+            'Resource', 'Region', 'Account', 'Tags', 'Tag Source', 'Technical Owner', 
+            'Business Owner', 'Environment', 'Fallback Reason'
         ]
         
         # Write headers
@@ -124,7 +125,12 @@ class ExcelGenerator:
                 'Resource': item.get('resource', 'N/A'),
                 'Region': item.get('region', 'N/A'),
                 'Account': item.get('account', 'N/A'),
-                'Tags': item.get('tags', 'N/A')
+                'Tags': item.get('tags', 'N/A'),
+                'Tag Source': item.get('tag_source', 'N/A'),
+                'Technical Owner': item.get('technical_owner', 'N/A'),
+                'Business Owner': item.get('business_owner', 'N/A'),
+                'Environment': item.get('environment', 'N/A'),
+                'Fallback Reason': item.get('fallback_reason', 'N/A')
             }
             
             for col, fieldname in enumerate(fieldnames, 1):

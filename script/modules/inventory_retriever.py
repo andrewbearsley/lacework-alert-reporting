@@ -277,11 +277,28 @@ class InventoryRetriever:
             resource_id = self._extract_resource_id_from_arn(arn)
             
             # Find resource in inventory by resource ID
+            # For CloudTrail, prioritize cloudtrail:trail over cloudtrail:shadow-trail
             found_resource = None
+            candidate_resources = []
+            
             for resource in inventory.get('resources', []):
                 if resource.get('resourceId') == resource_id:
-                    found_resource = resource
-                    break
+                    candidate_resources.append(resource)
+            
+            if candidate_resources:
+                # For CloudTrail resources, prioritize the main trail over shadow trail
+                if 'cloudtrail' in arn.lower():
+                    # Look for cloudtrail:trail first (has tags), then cloudtrail:shadow-trail
+                    for resource in candidate_resources:
+                        if resource.get('resourceType') == 'cloudtrail:trail':
+                            found_resource = resource
+                            break
+                    # If no cloudtrail:trail found, use the first one (shadow-trail)
+                    if not found_resource:
+                        found_resource = candidate_resources[0]
+                else:
+                    # For non-CloudTrail resources, use the first match
+                    found_resource = candidate_resources[0]
             
             if found_resource:
                 requested_resources[arn] = found_resource
@@ -314,10 +331,24 @@ class InventoryRetriever:
         # Handle different resource formats
         if '/' in resource_part:
             # Format: resource-type/resource-id
-            return resource_part.split('/')[-1]
+            resource_id = resource_part.split('/')[-1]
         else:
             # Format: just resource-id
-            return resource_part
+            resource_id = resource_part
+        
+        # Special handling for Lambda functions - remove 'function:' prefix if present
+        if resource_id.startswith('function:'):
+            resource_id = resource_id[9:]  # Remove 'function:' prefix
+        
+        # Special handling for ELB load balancers - use the load balancer name instead of UUID
+        if 'elasticloadbalancing' in arn and '/app/' in resource_part:
+            # For ELB ARNs like: arn:aws:elasticloadbalancing:region:account:loadbalancer/app/name/uuid
+            # Extract the name part: loadbalancer/app/name/uuid -> name
+            app_part = resource_part.split('/')
+            if len(app_part) >= 3 and app_part[1] == 'app':
+                resource_id = app_part[2]  # Use the load balancer name
+        
+        return resource_id
     
     def extract_tags_from_resources(self, resources: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
         """

@@ -151,13 +151,30 @@ def flatten_compliance_violations(compliance_violations: List[Dict[str, Any]]) -
         if resources:
             for resource in resources:
                 row = base_violation.copy()
+                # Format tags for display
+                tags = resource.get('tags', {})
+                if isinstance(tags, dict):
+                    # Format tags as key=value pairs
+                    tag_pairs = [f"{k}={v}" for k, v in tags.items()]
+                    tags_display = "; ".join(tag_pairs) if tag_pairs else 'N/A'
+                else:
+                    tags_display = str(tags) if tags else 'N/A'
+                
                 row.update({
                     'resource': resource.get('arn', ''),
                     'region': resource.get('region', ''),
                     'account': violation['account_alias'],
-                    'tags': resource.get('tags', 'N/A'),
+                    'tags': tags_display,
+                    'tag_source': resource.get('tag_source', 'unknown'),
+                    'technical_owner': resource.get('technical_owner', ''),
+                    'business_owner': resource.get('business_owner', ''),
+                    'environment': resource.get('environment', ''),
                     'remediation_steps': violation.get('remediation', 'N/A')
                 })
+                
+                # Add fallback information if applicable
+                if resource.get('tag_source') == 'fallback':
+                    row['fallback_reason'] = resource.get('fallback_reason', '')
                 flattened_data.append(row)
         else:
             # No resources, just add the violation info

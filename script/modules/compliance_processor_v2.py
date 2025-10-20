@@ -8,7 +8,7 @@ from datetime import datetime
 
 from .cache_manager import CacheManager
 from .lacework_client import LaceworkClientWrapper
-from .tag_retriever_v2 import TagRetrieverV2
+from .tag_retriever_v3 import TagRetrieverV3
 
 
 class ComplianceProcessorV2:
@@ -26,7 +26,7 @@ class ComplianceProcessorV2:
         """Initialize compliance processor with client and cache manager."""
         self.client_wrapper = client_wrapper
         self.cache_manager = cache_manager
-        self.tag_retriever = TagRetrieverV2(client_wrapper, cache_manager)
+        self.tag_retriever = TagRetrieverV3(client_wrapper, cache_manager)
     
     def process_compliance_report(self, report_name: str, start_date: str, end_date: str, 
                                 aws_account_filter: str = None) -> List[Dict[str, Any]]:
@@ -97,18 +97,35 @@ class ComplianceProcessorV2:
             # Get resource ARNs for tag retrieval
             resource_arns = [resource['arn'] for resource in all_resources if resource.get('arn')]
             
-            # Get resource tags using optimized paginated approach
+            # Get resource tags using optimized paginated approach with fallback
             if resource_arns:
                 print(f"Retrieving tags for {len(resource_arns)} resources...")
-                resource_tags = self.tag_retriever.get_resource_tags_optimized(resource_arns, start_date, end_date)
+                resource_tag_info = self.tag_retriever.get_resource_tags_optimized(
+                    account_id, resource_arns, account_alias
+                )
                 
-                # Apply tags to resources
+                # Apply tags to resources with fallback information
                 for resource in all_resources:
                     arn = resource.get('arn')
                     if arn:
-                        resource['tags'] = resource_tags.get(arn, 'N/A')
+                        tag_info = resource_tag_info.get(arn, {})
+                        
+                        # Use actual tags if available, otherwise use fallback
+                        if tag_info.get('has_tags'):
+                            resource['tags'] = tag_info.get('tags', {})
+                            resource['tag_source'] = 'inventory'
+                        else:
+                            resource['tags'] = tag_info.get('tags', {})
+                            resource['tag_source'] = 'fallback'
+                            resource['fallback_reason'] = tag_info.get('fallback_reason')
+                        
+                        # Add ownership information for easier access
+                        resource['technical_owner'] = tag_info.get('technical_owner')
+                        resource['business_owner'] = tag_info.get('business_owner')
+                        resource['environment'] = tag_info.get('environment')
                     else:
                         resource['tags'] = 'N/A'
+                        resource['tag_source'] = 'none'
             
             # Create compliance violations with enhanced data
             account_violations = self._create_compliance_violations(

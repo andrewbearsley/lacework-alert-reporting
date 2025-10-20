@@ -67,6 +67,14 @@ class CacheManager:
         
         return account_dir / filename
     
+    def get_account_fallback_cache_path(self, account_id: str) -> Path:
+        """Get cache file path for account fallback information."""
+        fallback_dir = self.cache_dir / "account-fallbacks"
+        fallback_dir.mkdir(exist_ok=True)
+        
+        filename = f"fallback_{account_id}.json"
+        return fallback_dir / filename
+    
     def load_from_cache(self, cache_file: Path) -> Optional[Dict[str, Any]]:
         """Load data from cache file if it exists and is not expired."""
         if not cache_file.exists():
