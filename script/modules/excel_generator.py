@@ -87,9 +87,9 @@ class ExcelGenerator:
         
         # Define fieldnames
         fieldnames = [
-            'Policy ID', 'Policy Title', 'Description', 'Remediation Steps', 'Severity',
-            'Resource', 'Region', 'Account', 'Tags', 'Tag Source', 'Technical Owner', 
-            'Business Owner', 'Environment', 'Fallback Reason'
+            'Policy ID', 'Policy Title', 'Description and Remediation', 'Severity',
+            'Resource', 'Region', 'Account', 'Tags', 'Technical Owner', 
+            'Business Owner', 'Environment', 'Tag Source'
         ]
         
         # Write headers
@@ -119,22 +119,28 @@ class ExcelGenerator:
             row_data = {
                 'Policy ID': item.get('policy_id', 'N/A'),
                 'Policy Title': item.get('policy_title', 'N/A'),
-                'Description': item.get('description', 'N/A'),
-                'Remediation Steps': item.get('remediation_steps', 'N/A'),
+                'Description and Remediation': item.get('remediation_steps', 'N/A'),
                 'Severity': item.get('severity', 'N/A'),
                 'Resource': item.get('resource', 'N/A'),
                 'Region': item.get('region', 'N/A'),
                 'Account': item.get('account', 'N/A'),
                 'Tags': item.get('tags', 'N/A'),
-                'Tag Source': item.get('tag_source', 'N/A'),
                 'Technical Owner': item.get('technical_owner', 'N/A'),
                 'Business Owner': item.get('business_owner', 'N/A'),
                 'Environment': item.get('environment', 'N/A'),
-                'Fallback Reason': item.get('fallback_reason', 'N/A')
+                'Tag Source': item.get('tag_source', 'N/A')
             }
             
             for col, fieldname in enumerate(fieldnames, 1):
-                ws.cell(row=row, column=col, value=row_data[fieldname])
+                cell = ws.cell(row=row, column=col, value=row_data[fieldname])
+                
+                # Make Description and Remediation links clickable
+                if fieldname == 'Description and Remediation' and row_data[fieldname] != 'N/A':
+                    link_value = row_data[fieldname]
+                    if isinstance(link_value, str) and link_value.startswith('http'):
+                        cell.hyperlink = link_value
+                        cell.font = Font(color="0000FF", underline="single")
+                        cell.value = link_value  # Show the actual URL
         
         # Auto-adjust column widths
         self._auto_adjust_columns(ws)

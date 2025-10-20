@@ -161,7 +161,7 @@ class ComplianceProcessorV2:
                     
                     accounts.append({
                         'account_id': account_id,
-                        'account_alias': account.get('name', ''),
+                        'account_alias': account_id,  # Use AWS account ID instead of Lacework integration name
                         'enabled': account.get('enabled', 0),
                         'integration_guid': account.get('intgGuid', '')
                     })
@@ -350,7 +350,7 @@ class ComplianceProcessorV2:
                 'account_alias': account_alias,
                 'policy_id': policy_id,
                 'policy_title': policy.get('TITLE', ''),
-                'severity': policy.get('SEVERITY', ''),
+                'severity': self._map_compliance_severity(policy.get('SEVERITY', '')),
                 'status': policy.get('STATUS', ''),
                 'description': policy.get('TITLE', ''),
                 'remediation': policy.get('INFO_LINK', ''),
@@ -362,3 +362,18 @@ class ComplianceProcessorV2:
             violations.append(violation)
         
         return violations
+    
+    def _map_compliance_severity(self, severity_value: Any) -> str:
+        """Map numeric severity from compliance reports to text labels."""
+        severity_map = {
+            '1': 'Critical',
+            '2': 'High', 
+            '3': 'Medium',
+            '4': 'Low',
+            '5': 'Info',
+            '6': 'Info',  # Additional severity levels map to Info
+            '0': 'Info',  # Some systems use 0 for informational
+            '': 'Info',   # Empty severity defaults to Info
+            None: 'Info'  # None severity defaults to Info
+        }
+        return severity_map.get(str(severity_value), 'Info')
