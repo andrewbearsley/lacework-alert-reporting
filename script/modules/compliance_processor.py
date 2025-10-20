@@ -1,35 +1,161 @@
 """
-Compliance processing functionality for Lacework Alert Reporting.
+Optimized compliance processing using compliance-first approach.
+Focuses on non-compliant policies only and uses paginated inventory for tag retrieval.
 """
-import json
-import os
-import subprocess
 import time
-from pathlib import Path
 from typing import Dict, List, Any, Optional
+from datetime import datetime
 
 from .cache_manager import CacheManager
 from .lacework_client import LaceworkClientWrapper
+from .tag_retriever import TagRetrieverV3
 
 
-class ComplianceProcessor:
-    """Handles compliance report retrieval and processing."""
+class ComplianceProcessorV2:
+    """
+    Optimized compliance processor using compliance-first approach.
+    
+    Key improvements:
+    - Focus on non-compliant policies only
+    - Use paginated account inventory for efficient tag retrieval
+    - Cache compliance reports per account and time range
+    - Sequential processing to respect rate limits
+    """
     
     def __init__(self, client_wrapper: LaceworkClientWrapper, cache_manager: CacheManager):
         """Initialize compliance processor with client and cache manager."""
         self.client_wrapper = client_wrapper
         self.cache_manager = cache_manager
+        self.tag_retriever = TagRetrieverV3(client_wrapper, cache_manager)
     
-    def get_aws_accounts(self) -> List[Dict[str, Any]]:
+    def process_compliance_report(self, report_name: str, start_date: str, end_date: str, 
+                                aws_account_filter: str = None) -> List[Dict[str, Any]]:
+        """
+        Process compliance report using compliance-first approach.
+        
+        Args:
+            report_name: Name of compliance report (e.g., "XYZ-AWS-Cyber-Security-Standards")
+            start_date: Start date for compliance report
+            end_date: End date for compliance report
+            aws_account_filter: Optional AWS account ID to filter to
+            
+        Returns:
+            List of compliance violations with enhanced resource tags
+        """
+        print(f"=== COMPLIANCE-FIRST PROCESSING ===")
+        print(f"Report: {report_name}")
+        print(f"Date Range: {start_date} to {end_date}")
+        if aws_account_filter:
+            print(f"Account Filter: {aws_account_filter}")
+        
+        # Step 1: Get AWS accounts
+        print(f"\nStep 1: Getting AWS accounts...")
+        aws_accounts = self._get_aws_accounts()
+        if not aws_accounts:
+            print("No AWS accounts found")
+            return []
+        
+        # Apply account filtering if specified
+        if aws_account_filter:
+            # Handle comma-separated account IDs
+            filter_accounts = [acc.strip() for acc in aws_account_filter.split(',')]
+            aws_accounts = [acc for acc in aws_accounts if acc['account_id'] in filter_accounts]
+            print(f"Filtered to {len(aws_accounts)} accounts matching {aws_account_filter}")
+        
+        print(f"Processing {len(aws_accounts)} AWS accounts...")
+        
+        # Step 2: Process each account sequentially (respect rate limits)
+        all_compliance_violations = []
+        
+        for i, account in enumerate(aws_accounts, 1):
+            account_id = account['account_id']
+            account_alias = account.get('account_alias', '')
+            
+            print(f"\n--- Account {i}/{len(aws_accounts)}: {account_id} ({account_alias}) ---")
+            
+            # Get compliance report for this account
+            compliance_data = self._get_account_compliance_report(account_id, report_name, start_date, end_date)
+            
+            if not compliance_data:
+                print(f"No compliance data found for account {account_id}")
+                continue
+            
+            # Extract non-compliant policies only
+            non_compliant_policies = self._extract_non_compliant_policies(compliance_data)
+            print(f"Found {len(non_compliant_policies)} non-compliant policies")
+            
+            if not non_compliant_policies:
+                print(f"No non-compliant policies found for account {account_id}")
+                continue
+            
+            # Extract resources from non-compliant policies
+            all_resources = []
+            for policy in non_compliant_policies:
+                policy_resources = self._extract_resources_from_policy(policy)
+                all_resources.extend(policy_resources)
+            
+            print(f"Extracted {len(all_resources)} resources from non-compliant policies")
+            
+            # Get resource ARNs for tag retrieval
+            resource_arns = [resource['arn'] for resource in all_resources if resource.get('arn')]
+            
+            # Get resource tags using optimized paginated approach with fallback
+            if resource_arns:
+                print(f"Retrieving tags for {len(resource_arns)} resources...")
+                resource_tag_info = self.tag_retriever.get_resource_tags_optimized(
+                    account_id, resource_arns, account_alias
+                )
+                
+                # Apply tags to resources with fallback information
+                for resource in all_resources:
+                    arn = resource.get('arn')
+                    if arn:
+                        tag_info = resource_tag_info.get(arn, {})
+                        
+                        # Use actual tags if available, otherwise use fallback
+                        if tag_info.get('has_tags'):
+                            resource['tags'] = tag_info.get('tags', {})
+                            resource['tag_source'] = 'inventory'
+                        else:
+                            resource['tags'] = tag_info.get('tags', {})
+                            resource['tag_source'] = 'fallback'
+                            resource['fallback_reason'] = tag_info.get('fallback_reason')
+                        
+                        # Add ownership information for easier access
+                        resource['technical_owner'] = tag_info.get('technical_owner')
+                        resource['business_owner'] = tag_info.get('business_owner')
+                        resource['environment'] = tag_info.get('environment')
+                    else:
+                        resource['tags'] = 'N/A'
+                        resource['tag_source'] = 'none'
+            
+            # Create compliance violations with enhanced data
+            account_violations = self._create_compliance_violations(
+                account_id, account_alias, non_compliant_policies, all_resources
+            )
+            
+            all_compliance_violations.extend(account_violations)
+            print(f"Created {len(account_violations)} compliance violations for account {account_id}")
+            
+            # Rate limiting: Add delay between accounts
+            if i < len(aws_accounts):
+                print("Waiting 2 seconds before next account...")
+                time.sleep(2)
+        
+        print(f"\n=== COMPLIANCE PROCESSING COMPLETE ===")
+        print(f"Total compliance violations: {len(all_compliance_violations)}")
+        
+        return all_compliance_violations
+    
+    def _get_aws_accounts(self) -> List[Dict[str, Any]]:
         """Get configured AWS accounts."""
         try:
-            # Use the client wrapper to get AWS accounts
             accounts_data = self.client_wrapper.get_aws_accounts()
             
             if accounts_data and 'data' in accounts_data:
                 accounts = []
                 for account in accounts_data['data']:
-                    # Extract account ID from the data structure
+                    # Extract account ID from the data structure (same as original processor)
                     account_id = account.get('data', {}).get('awsAccountId', '')
                     if not account_id:
                         # Fallback to other possible fields
@@ -37,248 +163,207 @@ class ComplianceProcessor:
                     
                     accounts.append({
                         'account_id': account_id,
-                        'account_alias': account.get('name', ''),
+                        'account_alias': account_id,  # Use AWS account ID instead of Lacework integration name
                         'enabled': account.get('enabled', 0),
                         'integration_guid': account.get('intgGuid', '')
                     })
                 
-                # Filter to only enabled accounts for compliance reporting
-                enabled_accounts = [acc for acc in accounts if acc['enabled'] == 1]
+                # Filter to enabled accounts only (enabled = 1)
+                enabled_accounts = [acc for acc in accounts if acc['enabled'] == 1 and acc['account_id']]
                 print(f"Found {len(accounts)} total AWS accounts ({len(enabled_accounts)} enabled)")
                 return enabled_accounts
-            else:
-                print(f"No AWS accounts found in response. Data structure: {accounts_data}")
-                return []
-                
+            
+            return []
+            
         except Exception as e:
-            print(f"Error retrieving AWS accounts: {e}")
+            print(f"Error getting AWS accounts: {str(e)}")
             return []
     
-    def get_compliance_report(self, account_id: str, report_name: str = None) -> Dict[str, Any]:
-        """Get compliance report for a specific AWS account with non-compliant resources."""
+    def _get_account_compliance_report(self, account_id: str, report_name: str, start_date: str, end_date: str) -> Optional[Dict[str, Any]]:
+        """
+        Get compliance report for a specific account (cached).
         
-        # Create cache filename that includes both account ID and report name
-        if report_name:
-            report_suffix = report_name.lower().replace(' ', '_').replace('/', '_').replace('(', '').replace(')', '').replace(':', '').replace('.', '')
-            cache_suffix = f"compliance_{account_id}_{report_suffix}"
-        else:
-            cache_suffix = f"compliance_{account_id}_default"
-        
-        cache_file = self.cache_manager.get_cache_file_path('compliance-reports', cache_suffix)
-        
-        # Check if cache file exists and is less than 24 hours old
+        Args:
+            account_id: AWS account ID
+            report_name: Compliance report name
+            start_date: Start date
+            end_date: End date
+            
+        Returns:
+            Compliance report data or None
+        """
+        # Check cache first
+        cache_file = self.cache_manager.get_account_compliance_cache_path(account_id, report_name, start_date, end_date)
         cached_data = self.cache_manager.load_from_cache(cache_file)
+        
         if cached_data:
+            print(f"Using cached compliance report for account {account_id}")
             return cached_data
         
-        max_retries = 5
-        backoff_intervals = [60, 60, 60, 60, 60]  # Lacework requires 60s between rate-limited requests
+        # Fetch fresh compliance report
+        print(f"Fetching fresh compliance report for account {account_id}...")
         
-        for attempt in range(max_retries):
-            try:
-                # Get credentials from client wrapper
-                credentials = self.client_wrapper.credentials
-                
-                # Set up environment variables for Lacework CLI authentication
-                env = os.environ.copy()
-                env['LW_ACCOUNT'] = credentials.get('account', '')
-                env['LW_API_KEY'] = credentials.get('keyId', '')
-                env['LW_API_SECRET'] = credentials.get('secret', '')
-                
-                # Build command to get compliance report
-                cmd = [
-                    "lacework", "compliance", "aws", "get-report", account_id,
-                    "--status", "non-compliant",
-                    "--json",
-                    "--api_key", credentials.get('keyId', ''),
-                    "--api_secret", credentials.get('secret', ''),
-                    "--account", credentials.get('account', '')
-                ]
-                
-                # Add report name filter if specified
-                if report_name:
-                    cmd.extend(["--report_name", report_name])
-                
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
-                
-                if result.returncode == 0:
-                    compliance_data = json.loads(result.stdout)
-                    
-                    # Cache the result
-                    self.cache_manager.save_to_cache(cache_file, compliance_data)
-                    print(f"Cached compliance report: {cache_file}")
-                    
-                    return compliance_data
-                else:
-                    error_output = result.stderr
-                    if '429' in error_output or 'Rate Limit' in error_output:
-                        if attempt < max_retries - 1:
-                            wait_time = backoff_intervals[attempt]
-                            print(f"      ⏳ Rate limit hit (CLI compliance report {account_id}), waiting {wait_time}s (retry {attempt + 1}/{max_retries})")
-                            time.sleep(wait_time)
-                        else:
-                            print(f"      ❌ Failed to retrieve compliance report {account_id} after {max_retries} attempts")
-                            return {}
-                    else:
-                        print(f"CLI error retrieving compliance report: {result.stderr}")
-                        return {}
-            
-            except subprocess.TimeoutExpired:
-                print(f"CLI timeout retrieving compliance report (attempt {attempt + 1}/{max_retries})")
-                if attempt < max_retries - 1:
-                    wait_time = backoff_intervals[attempt]
-                    time.sleep(wait_time)
-                else:
-                    return {}
-            except json.JSONDecodeError as e:
-                print(f"JSON parsing error retrieving compliance report: {e}")
-                return {}
-            except Exception as e:
-                print(f"Error retrieving compliance report: {e}")
-                return {}
-        
-        return {}
-    
-    def parse_compliance_report_data(self, compliance_data: Dict[str, Any], policy_details: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Parse compliance report data and extract relevant fields for Excel output."""
-        compliance_items = []
-        
-        # Handle the actual Lacework compliance report format
-        if 'recommendations' in compliance_data and isinstance(compliance_data['recommendations'], list):
-            items = compliance_data['recommendations']
-            recommendations_count = len(items)
-        elif 'data' in compliance_data:
-            report_data = compliance_data['data']
-            
-            # Handle different compliance report formats
-            if isinstance(report_data, list):
-                # Direct list of compliance items
-                items = report_data
-                recommendations_count = len(items)
-            elif isinstance(report_data, dict) and 'recommendations' in report_data:
-                # Format with recommendations array
-                items = report_data['recommendations']
-                recommendations_count = len(items)
-            elif isinstance(report_data, dict) and 'violations' in report_data:
-                # Format with violations array
-                items = report_data['violations']
-                recommendations_count = len(items)
-            else:
-                print(f"Unknown compliance report format: {type(report_data)}")
-                return compliance_items
-            
-        else:
-            print("No recommendations or data found in compliance report")
-            return compliance_items
-        
-        print(f"Processing {recommendations_count} compliance recommendations...")
-        
-        for item in items:
-            # Extract policy information
-            policy_id = item.get('policyId', item.get('REC_ID', 'Unknown'))
-            policy_info = policy_details.get(policy_id, {})
-            
-            # Skip if policy is not a compliance policy
-            if policy_info.get('status') == 'Skipped':
-                continue
-            
-            # Extract account information
-            account_id = item.get('accountId', item.get('ACCOUNT_ID', 'Unknown'))
-            account_alias = item.get('accountAlias', item.get('ACCOUNT_ALIAS', ''))
-            
-            # Format account information
-            if account_alias:
-                account = f"{account_id} ({account_alias})"
-            else:
-                account = account_id
-            
-            # Extract compliance status
-            status = item.get('status', item.get('STATUS', 'Non-Compliant'))
-            
-            # Handle violations array - each violation is a separate compliance item
-            violations = item.get('VIOLATIONS', [])
-            if violations:
-                for violation in violations:
-                    # Extract resource information from violation
-                    resource_arn = violation.get('resource', 'Unknown')
-                    region = violation.get('region', 'Unknown')
-                    
-                    # Format resource with account information
-                    if resource_arn != 'Unknown' and resource_arn.startswith('arn:aws:'):
-                        if account_alias:
-                            resource_arn += f" (Account: {account_id}, Alias: {account_alias})"
-                        elif account_id != 'Unknown':
-                            resource_arn += f" (Account: {account_id})"
-                    
-                    # Use compliance report severity (numeric) over policy cache severity (text)
-                    compliance_severity = item.get('SEVERITY', 'Unknown')
-                    if compliance_severity != 'Unknown':
-                        severity = self._map_compliance_severity(compliance_severity)
-                    else:
-                        severity = self._map_compliance_severity(policy_info.get('severity', 'Unknown'))
-                    
-                    compliance_item = {
-                        'policy_id': policy_id,
-                        'policy_title': policy_info.get('policy_name', item.get('TITLE', 'Unknown')),
-                        'description': policy_info.get('description', item.get('TITLE', 'N/A')),
-                        'remediation_steps': policy_info.get('remediation', 'N/A'),
-                        'severity': severity,
-                        'resource': resource_arn,
-                        'region': region,
-                        'account': account,
-                        'compliance_status': status,
-                        'raw_data': item
-                    }
-                    
-                    compliance_items.append(compliance_item)
-            else:
-                # No violations, but still create a compliance item for the policy
-                compliance_item = {
-                    'policy_id': policy_id,
-                    'policy_title': policy_info.get('policy_name', item.get('TITLE', 'Unknown')),
-                    'description': policy_info.get('description', item.get('TITLE', 'N/A')),
-                    'remediation_steps': policy_info.get('remediation', 'N/A'),
-                    'severity': self._map_compliance_severity(policy_info.get('severity', item.get('SEVERITY', 'Unknown'))),
-                    'resource': account_id,  # Use account ID as resource if no specific resource
-                    'region': 'Unknown',
-                    'account': account,
-                    'compliance_status': status,
-                    'raw_data': item
-                }
-                
-                compliance_items.append(compliance_item)
-        
-        print(f"Parsed {len(compliance_items)} compliance items from {recommendations_count} recommendations")
-        return compliance_items
-    
-    def get_compliance_data_for_accounts(self, accounts: List[Dict[str, Any]], report_name: str = None, aws_account_filter: str = None) -> List[Dict[str, Any]]:
-        """Get compliance data for multiple AWS accounts."""
-        all_compliance_data = []
-        
-        # Filter accounts if specific AWS account is requested
-        if aws_account_filter:
-            accounts = [acc for acc in accounts if acc['account_id'] == aws_account_filter]
-            print(f"Filtered to {len(accounts)} accounts matching {aws_account_filter}")
-        
-        for account in accounts:
-            account_id = account['account_id']
-            account_alias = account.get('account_alias', '')
-            
-            print(f"Processing compliance report for account {account_id} ({account_alias})...")
-            
-            # Get compliance report for this account
-            compliance_data = self.get_compliance_report(account_id, report_name)
+        try:
+            # Use Lacework CLI to get compliance report
+            compliance_data = self._fetch_compliance_report_via_cli(account_id, report_name, start_date, end_date)
             
             if compliance_data:
-                # Parse the compliance data
-                # Note: We need policy details to parse compliance data properly
-                # For now, we'll create a basic structure
-                compliance_items = self._parse_compliance_data_basic(compliance_data, account_id, account_alias)
-                all_compliance_data.extend(compliance_items)
-            else:
-                print(f"No compliance data found for account {account_id}")
+                # Cache the compliance report
+                self.cache_manager.save_to_cache(cache_file, compliance_data)
+                print(f"Cached compliance report for account {account_id}")
+            
+            return compliance_data
+            
+        except Exception as e:
+            print(f"Error fetching compliance report for account {account_id}: {str(e)}")
+            return None
+    
+    def _fetch_compliance_report_via_cli(self, account_id: str, report_name: str, start_date: str, end_date: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch compliance report using Lacework CLI.
         
-        return all_compliance_data
+        Args:
+            account_id: AWS account ID
+            report_name: Compliance report name
+            start_date: Start date
+            end_date: End date
+            
+        Returns:
+            Compliance report data or None
+        """
+        try:
+            import subprocess
+            import json
+            
+            # Build lacework CLI command (CLI gets latest report, no date filtering)
+            cmd = [
+                "lacework", "compliance", "aws", "get-report", account_id,
+                "--report_name", report_name,
+                "--json"
+            ]
+            
+            print(f"Running: {' '.join(cmd)}")
+            
+            # Execute command
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                compliance_data = json.loads(result.stdout)
+                print(f"Successfully fetched compliance report")
+                return compliance_data
+            else:
+                print(f"CLI command failed: {result.stderr}")
+                return None
+                
+        except subprocess.TimeoutExpired:
+            print(f"CLI command timed out after 300 seconds")
+            return None
+        except Exception as e:
+            print(f"Error running CLI command: {str(e)}")
+            return None
+    
+    def _extract_non_compliant_policies(self, compliance_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Extract only non-compliant policies from compliance report.
+        
+        Args:
+            compliance_data: Raw compliance report data
+            
+        Returns:
+            List of non-compliant policies
+        """
+        non_compliant_policies = []
+        
+        # Navigate the compliance report structure
+        recommendations = compliance_data.get('recommendations', [])
+        for recommendation in recommendations:
+            # Check if policy is non-compliant
+            status = recommendation.get('STATUS', '').lower()
+            if status in ['noncompliant', 'non-compliant', 'violation', 'failed']:
+                non_compliant_policies.append(recommendation)
+        
+        return non_compliant_policies
+    
+    def _extract_resources_from_policy(self, policy: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Extract resources from a non-compliant policy.
+        
+        Args:
+            policy: Policy data from compliance report
+            
+        Returns:
+            List of resources from the policy
+        """
+        resources = []
+        
+        # Extract resources from VIOLATIONS array in policy data
+        violations = policy.get('VIOLATIONS', [])
+        for violation in violations:
+            if isinstance(violation, dict):
+                # Extract ARN and other resource info
+                arn = violation.get('resource', '')
+                if arn:
+                    resources.append({
+                        'arn': arn,
+                        'resource_type': '',  # Will be extracted from ARN
+                        'resource_name': '',  # Will be extracted from ARN
+                        'region': violation.get('region', ''),
+                        'policy_id': policy.get('REC_ID', ''),
+                        'policy_title': policy.get('TITLE', ''),
+                        'severity': policy.get('SEVERITY', ''),
+                        'description': policy.get('TITLE', '')
+                    })
+        
+        return resources
+    
+    def _create_compliance_violations(self, account_id: str, account_alias: str, 
+                                    non_compliant_policies: List[Dict[str, Any]], 
+                                    resources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Create compliance violations with enhanced resource data.
+        
+        Args:
+            account_id: AWS account ID
+            account_alias: AWS account alias
+            non_compliant_policies: List of non-compliant policies
+            resources: List of resources with tags
+            
+        Returns:
+            List of compliance violations
+        """
+        violations = []
+        
+        # Group resources by policy
+        resources_by_policy = {}
+        for resource in resources:
+            policy_id = resource.get('policy_id', 'unknown')
+            if policy_id not in resources_by_policy:
+                resources_by_policy[policy_id] = []
+            resources_by_policy[policy_id].append(resource)
+        
+        # Create violation for each policy
+        for policy in non_compliant_policies:
+            policy_id = policy.get('REC_ID', 'unknown')
+            policy_resources = resources_by_policy.get(policy_id, [])
+            
+            # Create violation record
+            violation = {
+                'account_id': account_id,
+                'account_alias': account_alias,
+                'policy_id': policy_id,
+                'policy_title': policy.get('TITLE', ''),
+                'severity': self._map_compliance_severity(policy.get('SEVERITY', '')),
+                'status': policy.get('STATUS', ''),
+                'description': policy.get('TITLE', ''),
+                'remediation': policy.get('INFO_LINK', ''),
+                'resource_count': len(policy_resources),
+                'resources': policy_resources,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            violations.append(violation)
+        
+        return violations
     
     def _map_compliance_severity(self, severity_value: Any) -> str:
         """Map numeric severity from compliance reports to text labels."""
@@ -294,88 +379,3 @@ class ComplianceProcessor:
             None: 'Info'  # None severity defaults to Info
         }
         return severity_map.get(str(severity_value), 'Info')
-    
-    def _parse_compliance_data_basic(self, compliance_data: Dict[str, Any], account_id: str, account_alias: str) -> List[Dict[str, Any]]:
-        """Basic parsing of compliance data without policy details."""
-        compliance_items = []
-        
-        # Handle the actual Lacework compliance report format
-        if 'recommendations' in compliance_data and isinstance(compliance_data['recommendations'], list):
-            items = compliance_data['recommendations']
-        elif 'data' in compliance_data:
-            report_data = compliance_data['data']
-            
-            # Handle different compliance report formats
-            if isinstance(report_data, list):
-                items = report_data
-            elif isinstance(report_data, dict) and 'recommendations' in report_data:
-                items = report_data['recommendations']
-            elif isinstance(report_data, dict) and 'violations' in report_data:
-                items = report_data['violations']
-            else:
-                print(f"Unknown compliance report format: {type(report_data)}")
-                return compliance_items
-        else:
-            print("No recommendations or data found in compliance report")
-            return compliance_items
-        
-        for item in items:
-            # Extract policy information
-            policy_id = item.get('policyId', item.get('REC_ID', 'Unknown'))
-            
-            # Extract account information
-            account_alias = item.get('accountAlias', item.get('ACCOUNT_ALIAS', account_alias))
-            
-            # Format account information
-            if account_alias:
-                account = f"{account_id} ({account_alias})"
-            else:
-                account = account_id
-            
-            # Extract compliance status
-            status = item.get('status', item.get('STATUS', 'Non-Compliant'))
-            
-            # Handle violations array - each violation is a separate compliance item
-            violations = item.get('VIOLATIONS', [])
-            if violations:
-                for violation in violations:
-                    # Extract resource information from violation
-                    resource_arn = violation.get('resource', 'Unknown')
-                    region = violation.get('region', 'Unknown')
-                    
-                    # Use compliance report severity (numeric)
-                    compliance_severity = item.get('SEVERITY', 'Unknown')
-                    severity = self._map_compliance_severity(compliance_severity) if compliance_severity != 'Unknown' else 'Unknown'
-                    
-                    compliance_item = {
-                        'policy_id': policy_id,
-                        'policy_title': item.get('TITLE', 'Unknown'),
-                        'description': item.get('TITLE', 'N/A'),
-                        'remediation_steps': 'N/A',  # Will be filled in later with policy details
-                        'severity': severity,
-                        'resource': resource_arn,
-                        'region': region,
-                        'account': account,
-                        'compliance_status': status,
-                        'raw_data': item
-                    }
-                    
-                    compliance_items.append(compliance_item)
-            else:
-                # No violations, but still create a compliance item for the policy
-                compliance_item = {
-                    'policy_id': policy_id,
-                    'policy_title': item.get('TITLE', 'Unknown'),
-                    'description': item.get('TITLE', 'N/A'),
-                    'remediation_steps': 'N/A',  # Will be filled in later with policy details
-                    'severity': self._map_compliance_severity(item.get('SEVERITY', 'Unknown')),
-                    'resource': account_id,  # Use account ID as resource if no specific resource
-                    'region': 'Unknown',
-                    'account': account,
-                    'compliance_status': status,
-                    'raw_data': item
-                }
-                
-                compliance_items.append(compliance_item)
-        
-        return compliance_items

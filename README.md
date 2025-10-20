@@ -156,48 +156,10 @@ Common compliance reports include:
 
 ## Output
 
-Generates an Excel report with professional formatting:
+Generates an Excel report.
 - **File:** 
   - Default: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD.xlsx`
   - With report: `output/lacework_alerts_YYYY-MM-DD_to_YYYY-MM-DD_REPORT-NAME.xlsx`
-  - Custom: `output/CUSTOM_FILENAME.xlsx` (when using `--output-file`)
-- **Worksheets:**
-  - **Alerts Tab:** Policy ID, Policy Title, Description, Remediation Steps, Severity, Resource, Region, Account, Alert Status, Alert ID (clickable hyperlink to Lacework Alert Inbox)
-  - **Compliance Status Tab:** Policy ID, Policy Title, Description, Remediation Steps, Severity, Resource, Region, Account (non-compliant resources only)
-  - **Summary Tab:** Report metadata and severity distributions for both alerts and compliance items
-- **Sorting:** Severity → Policy ID
-- **Format:** Excel with professional formatting, text wrapping, and perfect line break handling
-- **Features:**
-  - Clean borders and headers
-  - Auto-sized columns based on content
-  - Text wrapping for long content
-  - Summary sheet with comprehensive report metadata
-  - Clickable Alert ID hyperlinks to Lacework Alert Inbox
-  - Resource Enhancement: AWS resources include account ID and alias information for better context
-  - Compliance Status: Shows current non-compliant resources from compliance reports
-
-## Architecture
-
-- **Flexible date ranges:** Configurable date range selection with sensible defaults
-- **Dual API approach:** Uses both Lacework SDK and CLI for alert retrieval
-- **Policy enrichment:** Combines alert data with detailed policy information
-- **Intelligent caching:** Reuses policy details cache for performance optimization
-- **Rate limiting:** HTTP 429 handling with exponential backoff
-- **Error handling:** Retry logic and graceful degradation
-
-## Features
-
-- **Configurable date ranges:** Previous week (default), current week, or custom date ranges
-- **Compliance report filtering:** Filter alerts by specific compliance frameworks (e.g., AWS FSBP, PCI DSS, custom reports)
-- **Detailed Alert data:** Retrieves all compliance alerts for the specified time period
-- **Compliance Status reporting:** Retrieves current non-compliant resources from compliance reports
-- **Policy enrichment:** Automatically enriches alerts with policy details and remediation steps
-- **Caching:** Caches policy details, report definitions, and compliance reports to avoid redundant API calls
-- **Rate limiting:** Handles API rate limits with exponential backoff and retry logic
-- **Enhanced resource information:** AWS resources include account ID and alias for better context
-- **Multi-worksheet output:** Separate tabs for Alerts, Compliance Status, and Summary
-- **Filename generation:** Report names automatically included in output filenames
-- **Formatted output:** Generates well-formatted Excel reports with professional styling suitable for business presentations
 
 ## References
 
