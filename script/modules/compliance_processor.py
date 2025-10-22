@@ -48,6 +48,12 @@ class ComplianceProcessorV2:
         if aws_account_filter:
             print(f"Account Filter: {aws_account_filter}")
         
+        # Step 0: Validate report name upfront
+        print(f"\nStep 0: Validating compliance report...")
+        if not self._validate_report_name(report_name):
+            raise ValueError(f"Compliance report '{report_name}' not found. Please check the report name and try again.")
+        print(f"✅ Report '{report_name}' is valid")
+        
         # Step 1: Get AWS accounts
         print(f"\nStep 1: Getting AWS accounts...")
         aws_accounts = self._get_aws_accounts()
@@ -379,3 +385,48 @@ class ComplianceProcessorV2:
             None: 'Info'  # None severity defaults to Info
         }
         return severity_map.get(str(severity_value), 'Info')
+    
+    def _validate_report_name(self, report_name: str) -> bool:
+        """
+        Validate that the compliance report name exists in Lacework.
+        
+        Args:
+            report_name: Name of the compliance report to validate
+            
+        Returns:
+            True if report exists, False otherwise
+        """
+        try:
+            # Get available report definitions
+            report_definitions = self.client_wrapper.get_report_definitions()
+            
+            # Handle different response formats
+            if isinstance(report_definitions, dict) and 'data' in report_definitions:
+                reports = report_definitions['data']
+            elif isinstance(report_definitions, list):
+                reports = report_definitions
+            else:
+                print(f"Unexpected report definitions format: {type(report_definitions)}")
+                return False
+            
+            # Check if the report name exists (case-insensitive)
+            for report in reports:
+                if isinstance(report, dict):
+                    report_name_field = report.get('reportName', '') or report.get('name', '')
+                    if report_name_field.lower() == report_name.lower():
+                        return True
+            
+            # If not found, print available reports for debugging
+            print(f"Available compliance reports:")
+            for report in reports[:10]:  # Show first 10
+                if isinstance(report, dict):
+                    name = report.get('reportName', '') or report.get('name', 'Unknown')
+                    print(f"  - {name}")
+            if len(reports) > 10:
+                print(f"  ... and {len(reports) - 10} more")
+            
+            return False
+            
+        except Exception as e:
+            print(f"Error validating report name: {e}")
+            return False

@@ -51,7 +51,7 @@ def main():
     print("\033[1;36mStep 2: Processing compliance report\033[0m")
     
     compliance_violations = compliance_processor.process_compliance_report(
-        report_name=args.compliance_report or "AWS CIS 1.5.0",
+        report_name=args.compliance_report or args.report,
         start_date=start_date.strftime('%Y-%m-%d'),
         end_date=end_date.strftime('%Y-%m-%d'),
         aws_account_filter=args.aws_account

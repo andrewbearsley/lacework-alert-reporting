@@ -87,3 +87,15 @@ class LaceworkClientWrapper:
             return self.client.cloud_accounts.get_by_type("AwsCfg")
         
         return self.make_api_call_with_retry(api_call)
+    
+    def get_report_definitions(self):
+        """
+        Get available report definitions with retry logic.
+        
+        Returns:
+            List of report definitions
+        """
+        def api_call():
+            return self.client.report_definitions.get()
+        
+        return self.make_api_call_with_retry(api_call)

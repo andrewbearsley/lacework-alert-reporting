@@ -14,29 +14,26 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Use default (previous week Mon-Sun)
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json
+  # Use previous week Mon-Sun with UNSW report
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards"
   
   # Specify custom date range
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --start-date 2024-01-01 --end-date 2024-01-07
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --start-date 2024-01-01 --end-date 2024-01-07 -r "AWS CIS 1.5.0"
   
   # Use current week Mon-Sun
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --current-week
-  
-  # Filter by compliance report
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json --current-week -r "AWS Foundational Security Best Practices (FSBP) Standard"
   
-  # Skip compliance status tab (alerts only)
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --skip-compliance
-  
-  # Use specific compliance report for compliance status
+  # Use --compliance-report (same as -r)
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json --compliance-report "AWS PCI DSS 4.0.0"
   
+  # Skip compliance status tab (alerts only)
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards" --skip-compliance
+  
   # Filter to specific AWS account for testing
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --aws-account "123456789012"
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards" --aws-account "123456789012"
   
   # Skip tag retrieval for faster testing
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json --no-tags
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards" --no-tags
         """
     )
     
@@ -75,19 +72,22 @@ Examples:
         help='Custom Excel output filename (default: auto-generated based on date range)'
     )
     
-    # Filtering options
-    parser.add_argument(
+    # Required compliance report
+    report_group = parser.add_mutually_exclusive_group(required=True)
+    report_group.add_argument(
         '-r', '--report',
-        help='Filter alerts to only include policies from the specified compliance report (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")'
+        help='Compliance report name to use (e.g., "UNSW AWS Cyber Security Standards")'
     )
+    report_group.add_argument(
+        '--compliance-report',
+        help='Compliance report name to use (same as -r/--report)'
+    )
+    
+    # Other filtering options
     parser.add_argument(
         '--skip-compliance',
         action='store_true',
         help='Skip Compliance Status tab (only generate Alerts tab)'
-    )
-    parser.add_argument(
-        '--compliance-report',
-        help='Specific compliance report name to use for compliance status (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")'
     )
     parser.add_argument(
         '--aws-account',
