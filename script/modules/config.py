@@ -14,8 +14,8 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Use previous week Mon-Sun with UNSW report
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards"
+  # Use previous week Mon-Sun
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "AWS Foundational Security Best Practices (FSBP) Standard"
   
   # Specify custom date range
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json --start-date 2024-01-01 --end-date 2024-01-07 -r "AWS CIS 1.5.0"
@@ -27,13 +27,13 @@ Examples:
   python lacework_alert_reporting.py --api-key-file api-key/my-key.json --compliance-report "AWS PCI DSS 4.0.0"
   
   # Skip compliance status tab (alerts only)
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards" --skip-compliance
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "AWS Foundational Security Best Practices (FSBP) Standard" --skip-compliance
   
   # Filter to specific AWS account for testing
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards" --aws-account "123456789012"
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "AWS Foundational Security Best Practices (FSBP) Standard" --aws-account "123456789012"
   
   # Skip tag retrieval for faster testing
-  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "UNSW AWS Cyber Security Standards" --no-tags
+  python lacework_alert_reporting.py --api-key-file api-key/my-key.json -r "AWS Foundational Security Best Practices (FSBP) Standard" --no-tags
         """
     )
     
@@ -76,7 +76,7 @@ Examples:
     report_group = parser.add_mutually_exclusive_group(required=True)
     report_group.add_argument(
         '-r', '--report',
-        help='Compliance report name to use (e.g., "UNSW AWS Cyber Security Standards")'
+        help='Compliance report name to use (e.g., "AWS Foundational Security Best Practices (FSBP) Standard")'
     )
     report_group.add_argument(
         '--compliance-report',

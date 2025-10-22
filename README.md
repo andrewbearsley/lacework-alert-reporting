@@ -97,7 +97,7 @@ python3 script/lacework_alert_reporting.py -k "API_KEY_FILE" [OPTIONS]
 
 ### Command-Line Options
 - `-k, --api-key-file`: Path to the Lacework API key JSON file (required)
-- `-r, --report`: Compliance report name to use (required, e.g., "UNSW AWS Cyber Security Standards")
+- `-r, --report`: Compliance report name to use (required, e.g., "AWS Foundational Security Best Practices (FSBP) Standard")
 - `--compliance-report`: Compliance report name to use (same as -r/--report)
 - `--start-date`: Start date for alert retrieval (YYYY-MM-DD format)
 - `--end-date`: End date for alert retrieval (YYYY-MM-DD format)
@@ -109,11 +109,11 @@ python3 script/lacework_alert_reporting.py -k "API_KEY_FILE" [OPTIONS]
 ### Examples
 
 ```bash
-# Use previous week Mon-Sun with UNSW report
-python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json -r "UNSW AWS Cyber Security Standards"
+# Use previous week Mon-Sun
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json -r "AWS Foundational Security Best Practices (FSBP) Standard"
 
 # Use current week Mon-Sun
-python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --current-week -r "AWS CIS 1.5.0"
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --current-week -r "AWS Foundational Security Best Practices (FSBP) Standard"
 
 # Specify custom date range
 python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --start-date 2024-01-01 --end-date 2024-01-07 -r "AWS Foundational Security Best Practices (FSBP) Standard"
@@ -122,10 +122,10 @@ python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --start
 python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json --compliance-report "AWS PCI DSS 4.0.0"
 
 # Skip compliance status tab (alerts only)
-python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json -r "UNSW AWS Cyber Security Standards" --skip-compliance
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json -r "AWS Foundational Security Best Practices (FSBP) Standard" --skip-compliance
 
 # Clear cache and use custom output file
-python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json -r "UNSW AWS Cyber Security Standards" --clear-cache --output-file my_alerts.xlsx
+python3 script/lacework_alert_reporting.py -k api-key/my-lw-api-key.json -r "AWS Foundational Security Best Practices (FSBP) Standard" --clear-cache --output-file my_alerts.xlsx
 
 # Show help
 python3 script/lacework_alert_reporting.py --help
